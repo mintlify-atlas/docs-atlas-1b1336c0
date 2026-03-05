@@ -1,28 +1,20 @@
-# Mintlify Starter Kit
+# Automatización Lurwis - Documentation
 
-Use the starter kit to get your docs deployed and ready to customize.
+Comprehensive documentation for the WhatsApp automation platform for Picantería Lurwis restaurant in Chiclayo, Peru.
 
-Click the green **Use this template** button at the top of this repo to copy the Mintlify starter kit. The starter kit contains examples with
+This documentation covers:
 
-- Guide pages
-- Navigation
-- Customizations
-- API reference pages
-- Use of popular components
+- n8n workflow configuration (Receptor and Procesador)
+- AI agent setup with Google Gemini
+- Database integration (PostgreSQL, MongoDB, Redis)
+- WhatsApp Business API integration
+- Deployment and production configuration
 
-**[Follow the full quickstart guide](https://starter.mintlify.com/quickstart)**
+## Quick Links
 
-## AI-assisted writing
-
-Set up your AI coding tool to work with Mintlify:
-
-```bash
-npx skills add https://mintlify.com/docs
-```
-
-This command installs Mintlify's documentation skill for your configured AI tools like Claude Code, Cursor, Windsurf, and others. The skill includes component reference, writing standards, and workflow guidance.
-
-See the [AI tools guides](/ai-tools) for tool-specific setup.
+- **[Getting Started](https://docs.yourdomain.com/introduction)** - Overview and introduction
+- **[Quickstart Guide](https://docs.yourdomain.com/quickstart)** - Setup instructions
+- **[Architecture](https://docs.yourdomain.com/architecture)** - System design and data flow
 
 ## Development
 

@@ -42,7 +42,7 @@ Este sistema transforma la atención al cliente tradicional de un restaurante en
 ### Para los Clientes
 
 - **Respuesta instantánea**: Los mensajes se procesan en menos de 5 segundos
-- **Disponibilidad total**: Pueden consultar el menú y hacer pedidos incluso fuera del horario de atención (10am-11pm)
+- **Horario de atención**: Sistema valida horarios de 10 AM a 11 PM (zona horaria America/Lima) y envía mensaje automático fuera de este rango
 - **Experiencia natural**: Conversan con "Wilson", un asistente que entiende lenguaje coloquial peruano
 - **Confirmación clara**: Reciben resumen detallado del pedido con total, método de pago y tipo de servicio
 
@@ -82,12 +82,14 @@ La lógica de automatización está construida en n8n, una plataforma de automat
 
 ### 2. Agentes de IA (Google Gemini)
 
-Cuatro agentes especializados potenciados por LangChain y Google Gemini:
+Seis agentes especializados potenciados por LangChain y Google Gemini:
 
-- **Wilson - Clasificador**: Determina si el mensaje es sobre pedidos, reservas o información general
-- **Wilson - Pedidos**: Navega el menú usando herramientas SQL y confirma órdenes
-- **Wilson - Reservas de Mesas**: Gestiona disponibilidad para grupos de 2-12 personas
-- **Wilson - Info General**: Responde preguntas frecuentes con información estática
+- **Agente Clasificador**: Determina si el mensaje es sobre pedidos, reservas, eventos o información general
+- **Agente Detector**: Identifica si el cliente quiere modificar un pedido existente o solo consultar su estado
+- **Wilson - Pedidos**: Navega el menú usando herramientas SQL, calcula subtotales y confirma órdenes
+- **Wilson - Info General**: Responde preguntas frecuentes sobre ubicación, horarios y métodos de pago
+- **Wilson - Reservas de Mesas**: (⚠️ En desarrollo) Gestiona disponibilidad para grupos de 2-12 personas
+- **Wilson - Eventos**: (⚠️ En desarrollo) Coordina reservas de local para eventos especiales de 13+ personas
 
 ### 3. Bases de Datos
 

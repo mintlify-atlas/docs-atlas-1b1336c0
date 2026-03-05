@@ -1,7 +1,3 @@
-> **First-time setup**: Customize this file for your project. Prompt the user to customize this file for their project.
-> For Mintlify product knowledge (components, configuration, writing standards),
-> install the Mintlify skill: `npx skills add https://mintlify.com/docs`
-
 # Documentation project instructions
 
 ## About this project
@@ -14,8 +10,11 @@
 
 ## Terminology
 
-{/* Add product-specific terms and preferred usage */}
-{/* Example: Use "workspace" not "project", "member" not "user" */}
+- **Receptor** - The webhook receiver workflow (not "receiver" or "gateway")
+- **Procesador** - The AI processor workflow (not "processor" or "handler")
+- **Agente** - AI agent (use Spanish term in technical contexts)
+- **Buffer** - Message grouping system in Redis
+- **Confirmación** - Order confirmation (use "confirmo" or "confirma" for trigger word)
 
 ## Style preferences
 
@@ -29,5 +28,7 @@
 
 ## Content boundaries
 
-{/* Define what should and shouldn't be documented */}
-{/* Example: Don't document internal admin features */}
+- Document all implemented features accurately (Orders, General Inquiries are COMPLETE)
+- Clearly mark partially implemented features (Table Reservations, Venue Reservations are NOT FUNCTIONAL)
+- Don't document internal Azure server details or credentials
+- Focus on n8n workflow configuration and deployment, not restaurant operations

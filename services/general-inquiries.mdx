@@ -85,12 +85,15 @@ If the agent detects that a customer wants to order food or see the menu during 
 The **buscar_info_general** tool provides responses about:
 
 <Accordion title="Location">
-**Response includes**:
+**Full Address** (hardcoded in FAQ tool):
 - City: Chiclayo, Perú
-- Google Maps link to restaurant
-- Landmark references if available
+- District: Ciudad de Dios, San José
+- Lot: MZG_LT24, Cd de Dios 14013
+- Google Maps link: `https://maps.app.goo.gl/1DKHY1HEaqDwG5LJA`
+- Service area: "Todo Lambayeque" (all of Lambayeque region)
+- Delivery charge: 2 soles por envase descartable
 
-**Example**:
+**Example Response**:
 "Nos encontramos en Chiclayo 🏙️. Aquí está nuestra ubicación exacta: [Google Maps URL]"
 </Accordion>
 
@@ -106,12 +109,19 @@ The **buscar_info_general** tool provides responses about:
 </Accordion>
 
 <Accordion title="Operating Hours">
-**Schedule**:
-- **Open**: 10:00 AM - 11:00 PM (America/Lima timezone)
-- **Closed**: Outside operating hours
+<Warning>
+**Configuration Discrepancy**: The workflow code validates business hours as 10 AM-11 PM daily, but the FAQ tool response says "Monday-Sunday 11 AM-5 PM, closed Tuesday". This inconsistency exists in the source code and should be resolved.
+</Warning>
 
-**Example**:
-"Nuestro horario de atención es de 10:00 AM a 11:00 PM todos los días 🦐"
+**Workflow Validation Hours**:
+- **Code Check**: 10:00 AM - 11:00 PM daily (America/Lima timezone)
+- Customers receive "Local Cerrado" message outside these hours
+
+**FAQ Tool Response** (what customers are told):
+- Monday-Sunday: 11:00 AM - 5:00 PM
+- Tuesday: Closed (no service)
+
+**Action Required**: Update either the validation logic or the FAQ response to match actual restaurant hours.
 </Accordion>
 
 <Accordion title="Social Media & Contact">

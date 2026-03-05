@@ -35,11 +35,15 @@ When the [Clasificador agent](/workflows/procesador) detects that a customer wan
   </Step>
 
   <Step title="Confirmation Flow">
-    The customer must explicitly type **"confirmo"** to finalize the order:
+    The customer must explicitly type the confirmation word to finalize the order:
     - Wilson presents a complete order summary with total
-    - Customer confirms by typing "confirmo"
+    - Customer confirms by typing **"confirmo"** or **"confirma"** (regex: `/\bconfirm[oa]\b/i`)
     - Order is saved to PostgreSQL database
     - Confirmation message sent via WhatsApp
+    
+    <Note>
+    Both "confirmo" and "confirma" are accepted. The regex is case-insensitive and matches word boundaries.
+    </Note>
   </Step>
 </Steps>
 
