@@ -1,0 +1,88 @@
+{
+  "projectType": "saas",
+  "projectName": "Automatización Lurwis",
+  "projectDescription": "WhatsApp automation platform for restaurant customer service, orders, and reservations using n8n workflows and AI agents.",
+  "theme": "almond",
+  "primaryColor": "#FF5733",
+  "lightColor": "#FF8C66",
+  "darkColor": "#C70039",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Workflows",
+            "pages": [
+              "workflows/receptor",
+              "workflows/procesador"
+            ]
+          },
+          {
+            "group": "Services",
+            "pages": [
+              "services/orders",
+              "services/general-inquiries",
+              "services/table-reservations",
+              "services/venue-reservations"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/whatsapp-business",
+              "integrations/postgresql",
+              "integrations/mongodb",
+              "integrations/redis",
+              "integrations/google-gemini"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/n8n-setup",
+              "deployment/environment-variables",
+              "deployment/production"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/database-schema",
+              "reference/api-endpoints",
+              "reference/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "WhatsApp Business API integration with Meta webhooks",
+    "Redis-based message buffering to group rapid messages",
+    "AI-powered conversation agents using Google Gemini",
+    "Multi-service handling: orders, reservations, general inquiries",
+    "PostgreSQL database for menu and order management",
+    "MongoDB conversation memory for agent context",
+    "Business hours validation and automated responses",
+    "Order confirmation and modification workflows"
+  ],
+  "publicApiSurface": [
+    "/meta-verify webhook endpoint",
+    "Receptor workflow (message receiving and buffering)",
+    "Procesador workflow (AI processing and business logic)",
+    "Order management system",
+    "Table reservation system",
+    "Venue reservation system",
+    "General inquiries agent",
+    "PostgreSQL schema: pedidos_picanteria, logs_auditoria"
+  ]
+}
