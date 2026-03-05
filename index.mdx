@@ -1,97 +1,170 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Automatización Lurwis"
+description: "WhatsApp automation platform for restaurant customer service, orders, and reservations"
+mode: "custom"
 ---
 
-## Setting up
+<div className="relative overflow-hidden dark:bg-[#0f1117] bg-white py-20">
+  <div className="max-w-7xl mx-auto px-6 lg:px-8">
+    <div className="lg:grid lg:grid-cols-12 lg:gap-8 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-5xl lg:text-6xl font-bold dark:text-white text-gray-900 mb-6">
+          Automate Your Restaurant's WhatsApp Customer Service
+        </h1>
+        <p className="text-xl dark:text-gray-400 text-gray-600 mb-8 max-w-2xl">
+          Transform customer interactions with AI-powered WhatsApp automation for Picantería Lurwis. Handle orders, reservations, and inquiries 24/7 using n8n workflows and Google Gemini AI.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a 
+            href="/quickstart" 
+            className="inline-flex items-center px-6 py-3 rounded-lg bg-[#FF5733] text-white font-semibold hover:bg-[#C70039] transition-colors no-underline"
+          >
+            Get Started
+          </a>
+          <a 
+            href="/architecture" 
+            className="inline-flex items-center px-6 py-3 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-white/10 bg-gray-50 dark:text-white text-gray-900 font-semibold hover:border-[#FF5733] dark:hover:border-[#FF5733] transition-colors no-underline"
+          >
+            View Architecture
+          </a>
+        </div>
+      </div>
+      <div className="hidden lg:block lg:col-span-5">
+        <div className="relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#FF5733] to-[#C70039] opacity-20 blur-3xl rounded-full"></div>
+          <div className="relative dark:bg-[#1a1d27] bg-gray-50 rounded-2xl p-8 border dark:border-[#27272a] border-gray-200">
+            <div className="space-y-4">
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-[#FF5733] flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm dark:text-gray-300 text-gray-700">Cliente: "Quiero pedir un ceviche de pescado"</p>
+                </div>
+              </div>
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-[#FF8C66] flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm dark:text-gray-300 text-gray-700">Bot: "Excelente elección! Tenemos ceviche de pescado por S/. 25. ¿Deseas agregarlo a tu pedido?"</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold dark:text-white text-gray-900 mb-4">Quick Start</h2>
+  <p className="text-base dark:text-gray-400 text-gray-600 mb-8">Get your WhatsApp automation up and running in minutes</p>
+  
+  <Steps>
+    <Step title="Set up n8n Environment">
+      Install n8n and configure your workspace with the required credentials for WhatsApp Business API, PostgreSQL, MongoDB, and Redis.
+      
+      <Note>
+        You'll need a Meta Business account with WhatsApp Business API access to proceed.
+      </Note>
+    </Step>
+    
+    <Step title="Import Workflows">
+      Import the two core workflows into your n8n instance:
+      - **Receptor**: Handles incoming WhatsApp messages and buffers them in Redis
+      - **Procesador**: Processes buffered messages with AI agents and manages business logic
+      
+      ```bash
+      # Import from the workflows directory
+      n8n import:workflow --input="workflows/Picantería Lurwis _ Receptor.json"
+      n8n import:workflow --input="workflows/Picantería Lurwis _ Procesador.json"
+      ```
+    </Step>
+    
+    <Step title="Configure Webhook">
+      Set up the Meta webhook URL to point to your Receptor workflow endpoint:
+      
+      ```
+      https://your-domain.com/webhook/meta-verify
+      ```
+      
+      Configure webhook verification and activate the workflow to start receiving messages.
+    </Step>
+    
+    <Step title="Test the System">
+      Send a test message to your WhatsApp Business number and watch the automation handle it:
+      
+      <Accordion title="Example test conversation">
+        **You**: "Hola, quiero hacer un pedido"  
+        **Bot**: "¡Bienvenido a Picantería Lurwis! Estoy aquí para ayudarte con tu pedido. ¿Qué te gustaría ordenar hoy?"
+      </Accordion>
+    </Step>
+  </Steps>
+</div>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold dark:text-white text-gray-900 mb-4">Key Features</h2>
+  <p className="text-base dark:text-gray-400 text-gray-600 mb-8">Everything you need for automated restaurant customer service</p>
+  
+  <CardGroup cols={2}>
+    <Card title="Message Buffering" icon="layer-group" href="/workflows/receptor">
+      Redis-based system groups rapid messages from customers before processing, creating natural conversation flow.
+    </Card>
+    <Card title="AI Agents" icon="robot" href="/workflows/procesador">
+      Google Gemini-powered agents understand context and handle orders, reservations, and inquiries intelligently.
+    </Card>
+    <Card title="Multi-Service Support" icon="list-check" href="/services/orders">
+      Manages orders, table reservations, venue bookings, and general inquiries through a single interface.
+    </Card>
+    <Card title="Business Hours" icon="clock" href="/workflows/procesador">
+      Automatically validates business hours and sends appropriate responses when the restaurant is closed.
+    </Card>
+  </CardGroup>
+</div>
 
-## Make it yours
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold dark:text-white text-gray-900 mb-4">Explore by Topic</h2>
+  <p className="text-base dark:text-gray-400 text-gray-600 mb-8">Deep dive into specific areas of the system</p>
+  
+  <CardGroup cols={3}>
+    <Card title="Workflows" icon="diagram-project" href="/workflows/receptor">
+      Learn how the Receptor and Procesador workflows orchestrate message handling and AI processing.
+    </Card>
+    <Card title="Services" icon="concierge-bell" href="/services/orders">
+      Explore the order system, reservation management, and customer inquiry handling.
+    </Card>
+    <Card title="Integrations" icon="plug" href="/integrations/whatsapp-business">
+      Configure WhatsApp Business API, databases, and AI services for seamless operation.
+    </Card>
+    <Card title="Deployment" icon="server" href="/deployment/n8n-setup">
+      Set up n8n, configure environment variables, and deploy to production.
+    </Card>
+    <Card title="Database Schema" icon="database" href="/reference/database-schema">
+      Understand the PostgreSQL schema for orders, menu items, and audit logs.
+    </Card>
+    <Card title="Troubleshooting" icon="wrench" href="/reference/troubleshooting">
+      Common issues and solutions for webhook problems, database connections, and AI errors.
+    </Card>
+  </CardGroup>
+</div>
 
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="dark:bg-[#1a1d27] bg-gray-50 rounded-2xl p-8 border dark:border-[#27272a] border-gray-200">
+    <h2 className="text-2xl font-semibold dark:text-white text-gray-900 mb-4">Ready to automate your restaurant?</h2>
+    <p className="dark:text-gray-400 text-gray-600 mb-6">
+      Start building your WhatsApp automation today and transform how you handle customer interactions.
+    </p>
+    <a 
+      href="/quickstart" 
+      className="inline-flex items-center px-6 py-3 rounded-lg bg-[#FF5733] text-white font-semibold hover:bg-[#C70039] transition-colors no-underline"
+    >
+      Get Started Now
+    </a>
+  </div>
+</div>

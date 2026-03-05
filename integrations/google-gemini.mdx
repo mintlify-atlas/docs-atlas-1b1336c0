@@ -1,0 +1,540 @@
+---
+title: Google Gemini AI
+description: Configure Gemini models for AI agents via LangChain integration
+icon: sparkles
+---
+
+Google Gemini powers all AI agents in the system through LangChain, providing natural language understanding, intent classification, and conversational responses.
+
+## Overview
+
+The platform uses **Google Gemini** (formerly PaLM API) for:
+
+- **Intent classification** - Routing customers to correct agent
+- **Order processing** - Understanding menu requests and building orders
+- **Reservation handling** - Managing table and venue bookings
+- **General inquiries** - Answering questions about hours, location, etc.
+- **Order detection** - Distinguishing modification vs. status queries
+
+## Model Selection
+
+The system uses two types of models:
+
+| Model Type | Use Cases | Response Time | Cost |
+|------------|-----------|---------------|------|
+| **Fast Chat Models** | Classifier, Detector, General inquiries | ~1-2s | Low |
+| **Thinking Models** | Order processing (complex logic) | ~3-5s | Medium |
+
+<Note>
+  "Thinking models" are larger Gemini models (like gemini-1.5-pro) that perform better on complex reasoning tasks like building order JSONs.
+</Note>
+
+## API Setup
+
+<Steps>
+  <Step title="Get Google AI API key">
+    1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+    2. Click **Get API key**
+    3. Select or create a Google Cloud project
+    4. Copy the generated API key
+
+    <Warning>
+      Keep your API key secret. Never commit it to version control.
+    </Warning>
+  </Step>
+
+  <Step title="Enable Gemini API">
+    In Google Cloud Console:
+    1. Navigate to **APIs & Services** → **Library**
+    2. Search for "Generative Language API"
+    3. Click **Enable**
+  </Step>
+
+  <Step title="Configure billing (optional)">
+    - Free tier: 60 requests per minute
+    - Paid tier: Higher rate limits, better models
+    - Set up billing in Google Cloud Console
+  </Step>
+</Steps>
+
+## n8n Configuration
+
+Store Gemini credentials in n8n:
+
+<CodeGroup>
+```json n8n Credential
+{
+  "id": "EGUpckskyMrPNfc4",
+  "name": "Modelo Lurwis",
+  "type": "googlePalmApi",
+  "data": {
+    "apiKey": "AIzaSy...your_api_key"
+  }
+}
+```
+
+```env Environment Variable
+GOOGLE_API_KEY=AIzaSy...your_api_key
+```
+</CodeGroup>
+
+## Agent Configurations
+
+Each agent uses LangChain's Google Gemini Chat Model:
+
+### Classifier Agent
+
+**Purpose**: Route messages to correct specialist agent
+
+```javascript
+{
+  "agent": "@n8n/n8n-nodes-langchain.agent",
+  "name": "Agente Clasificador",
+  "model": {
+    "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+    "credentials": "Modelo Lurwis",
+    "options": {
+      "temperature": 0.1,  // Low temperature for consistent classification
+      "maxOutputTokens": 50
+    }
+  },
+  "memory": {
+    "collection": "historial_clasificador",
+    "contextWindow": 10
+  },
+  "systemMessage": "Classify intent: PEDIDOS, RESERVAS_MESA, RESERVAS_LOCAL, or GENERAL"
+}
+```
+
+### Order Agent
+
+**Purpose**: Handle food orders with menu database tools
+
+```javascript
+{
+  "agent": "@n8n/n8n-nodes-langchain.agent",
+  "name": "Agente Pedidos",
+  "model": {
+    "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+    "credentials": "Modelo Lurwis",
+    "options": {
+      "temperature": 0.2,
+      "maxOutputTokens": 1000,
+      "model": "gemini-1.5-pro"  // Thinking model for complex JSON generation
+    }
+  },
+  "tools": [
+    "consultar_categorias",
+    "consultar_platos",
+    "verificar_plato"
+  ],
+  "memory": {
+    "collection": "historial_pedidos",
+    "contextWindow": 25
+  }
+}
+```
+
+### Detector Agent
+
+**Purpose**: Determine if customer wants to modify or query existing order
+
+```javascript
+{
+  "agent": "@n8n/n8n-nodes-langchain.agent",
+  "name": "Detector de pedidos",
+  "model": {
+    "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+    "credentials": "Modelo Lurwis",
+    "options": {
+      "temperature": 0,  // Deterministic binary classification
+      "maxOutputTokens": 100
+    }
+  },
+  "memory": {
+    "collection": "historial_detector",
+    "contextWindow": 10
+  }
+}
+```
+
+### General Agent
+
+**Purpose**: Answer FAQs (hours, location, contact)
+
+```javascript
+{
+  "agent": "@n8n/n8n-nodes-langchain.agent",
+  "name": "Agente General",
+  "model": {
+    "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+    "credentials": "Modelo Lurwis",
+    "options": {
+      "temperature": 0.3,
+      "maxOutputTokens": 500
+    }
+  },
+  "tools": ["buscar_info_general"],
+  "memory": {
+    "collection": "historial_general",
+    "contextWindow": 10
+  }
+}
+```
+
+### Reservation Agents
+
+**Purpose**: Handle table and venue reservations
+
+```javascript
+// Table Reservations
+{
+  "agent": "Agente Reserva Mesas",
+  "memory": { "collection": "historial_reservas", "contextWindow": 15 }
+}
+
+// Venue Reservations
+{
+  "agent": "Agente Reservas Local",
+  "memory": { "collection": "historial_eventos", "contextWindow": 15 }
+}
+```
+
+## Temperature Settings
+
+Temperature controls response randomness:
+
+| Temperature | Use Case | Agents |
+|-------------|----------|--------|
+| **0.0** | Deterministic, exact classification | Detector |
+| **0.1** | Consistent categorization | Classifier |
+| **0.2** | Structured outputs (JSON) | Orders |
+| **0.3** | Natural conversation | General, Reservations |
+
+<Note>
+  Lower temperature = More deterministic. Higher = More creative but less predictable.
+</Note>
+
+## LangChain Tools Integration
+
+AI agents use PostgreSQL Tools to query the menu:
+
+<CodeGroup>
+```javascript consultar_categorias Tool
+{
+  "type": "n8n-nodes-base.postgresTool",
+  "name": "consultar_categorias",
+  "operation": "executeQuery",
+  "query": "SELECT id, nombre FROM categorias WHERE activo = true ORDER BY id",
+  "credentials": "Postgres Lurwis db"
+}
+```
+
+```javascript consultar_platos Tool
+{
+  "type": "n8n-nodes-base.postgresTool",
+  "name": "consultar_platos",
+  "operation": "executeQuery",
+  "query": `
+    SELECT p.id, p.nombre, p.descripcion,
+           json_agg(json_build_object('tamanio', pp.tamanio, 'precio', pp.precio)) AS precios
+    FROM platos p
+    JOIN plato_precios pp ON pp.plato_id = p.id
+    WHERE p.categoria_id = $fromAI('categoriaid', 'ID numérico de la categoría', 'number')
+    GROUP BY p.id
+  `,
+  "credentials": "Postgres Lurwis db"
+}
+```
+
+```javascript verificar_plato Tool
+{
+  "type": "n8n-nodes-base.postgresTool",
+  "name": "verificar_plato",
+  "operation": "executeQuery",
+  "query": `
+    SELECT p.nombre, pp.tamanio, pp.precio AS precio_unitario,
+           $fromAI('cantidad', 'Cantidad', 'number')::int AS cantidad,
+           (pp.precio * $fromAI('cantidad', 'Cantidad', 'number')::int) AS subtotal
+    FROM platos p
+    JOIN plato_precios pp ON pp.plato_id = p.id
+    WHERE p.id = $fromAI('platoid', 'ID del plato', 'number')
+    AND LOWER(pp.tamanio) = LOWER($fromAI('tamanio', 'Tamaño', 'string'))
+  `,
+  "credentials": "Postgres Lurwis db"
+}
+```
+</CodeGroup>
+
+The AI agent decides when to call tools:
+
+```
+User: "Quiero ver los ceviches"
+
+1. Agent calls consultar_categorias → finds "Ceviches" has ID 1
+2. Agent calls consultar_platos(categoriaid=1) → gets list with prices
+3. Agent responds: "Tenemos estos ceviches: ..."
+```
+
+## Prompt Engineering
+
+Key system prompt patterns used:
+
+### Role Definition
+
+```javascript
+"<ROL>\n" +
+"Eres Wilson, el asistente de pedidos de PICANTERÍA LURWIS 🦐. " +
+"Eres amable, conciso y usas emojis con moderación.\n" +
+"</ROL>"
+```
+
+### Critical Rules
+
+```javascript
+"<REGLAS_CRITICAS>\n" +
+"1. SILENCIO ABSOLUTO SOBRE TUS HERRAMIENTAS: NUNCA menciones que estás 'consultando' o 'buscando'.\n" +
+"2. NO ALUCINAR: NUNCA inventes precios o disponibilidad.\n" +
+"3. PRECIOS SAGRADOS: Usa solo los precios de verificar_plato.\n" +
+"</REGLAS_CRITICAS>"
+```
+
+### Context Injection
+
+```javascript
+const prompt = 
+  `📌 Mensaje recibido por usuario: ${message.text}\n` +
+  `📌 Id de usuario: ${message.from}\n` +
+  `📌 Contexto Interno: ${
+    existingOrder 
+      ? 'MODIFICACIÓN DE PEDIDO EXISTENTE: ' + JSON.stringify(existingOrder)
+      : 'ES UN PEDIDO NUEVO'
+  }`;
+```
+
+## Token Usage Optimization
+
+<Steps>
+  <Step title="Limit context window">
+    Use smaller `contextWindowLength` for simple agents:
+    - Classifier: 10 messages
+    - General: 10 messages
+    - Orders: 25 messages (needs full conversation)
+  </Step>
+
+  <Step title="Reduce max output tokens">
+    ```javascript
+    {
+      "maxOutputTokens": 50   // Classifier (just category name)
+      "maxOutputTokens": 500  // General (short FAQ answers)
+      "maxOutputTokens": 1000 // Orders (detailed responses + JSON)
+    }
+    ```
+  </Step>
+
+  <Step title="Use fast models for simple tasks">
+    Reserve thinking models (gemini-1.5-pro) only for:
+    - Order processing with JSON generation
+    - Complex multi-step reasoning
+    
+    Use default/flash models for:
+    - Classification
+    - Detection
+    - Simple Q&A
+  </Step>
+</Steps>
+
+## Rate Limits & Quotas
+
+### Free Tier
+
+- **60 requests per minute** (RPM)
+- **1,500 requests per day** (RPD)
+- Best for development/testing
+
+### Paid Tier
+
+- **1,000+ RPM** (depends on plan)
+- **Unlimited daily requests**
+- Priority access during high load
+
+<Warning>
+  Monitor usage in [Google Cloud Console](https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com/quotas) to avoid hitting limits.
+</Warning>
+
+## Error Handling
+
+Implement graceful fallbacks:
+
+<CodeGroup>
+```javascript Rate Limit Error (429)
+if (error.status === 429) {
+  return {
+    output: "Lo siento, estoy experimentando alta demanda. Por favor intenta en 1 minuto. 🙏",
+    error: true
+  };
+}
+```
+
+```javascript API Key Error (401)
+if (error.status === 401) {
+  console.error('Invalid Gemini API key');
+  return {
+    output: "Error de configuración. Por favor contacta al administrador.",
+    error: true
+  };
+}
+```
+
+```javascript Timeout Error
+if (error.code === 'ETIMEDOUT') {
+  return {
+    output: "La respuesta está tardando más de lo esperado. ¿Puedes reformular tu mensaje? 🤔",
+    error: true
+  };
+}
+```
+</CodeGroup>
+
+## Monitoring & Logging
+
+Track AI performance:
+
+<CodeGroup>
+```javascript Log Token Usage
+// In agent response handler
+const tokenUsage = response.response_metadata?.tokenUsage;
+
+console.log({
+  agent: 'Agente Pedidos',
+  userId: userId,
+  promptTokens: tokenUsage?.promptTokens,
+  completionTokens: tokenUsage?.completionTokens,
+  totalTokens: tokenUsage?.totalTokens,
+  timestamp: new Date().toISOString()
+});
+```
+
+```javascript Track Response Times
+const startTime = Date.now();
+const response = await agent.invoke(prompt);
+const duration = Date.now() - startTime;
+
+console.log({
+  agent: 'Agente Clasificador',
+  duration: duration,
+  fast: duration < 2000
+});
+```
+</CodeGroup>
+
+## Cost Estimation
+
+Gemini pricing (approximate):
+
+| Model | Input | Output |
+|-------|--------|--------|
+| **gemini-1.5-flash** | $0.075 / 1M tokens | $0.30 / 1M tokens |
+| **gemini-1.5-pro** | $1.25 / 1M tokens | $5.00 / 1M tokens |
+
+**Example scenario:**
+- 1,000 orders/day
+- Avg 500 input tokens + 200 output tokens per order
+- Using gemini-1.5-pro:
+
+```
+Daily cost = 1000 × (500×$1.25 + 200×$5.00) / 1,000,000
+           = 1000 × $1.625 / 1,000,000
+           = $1.63/day
+           = ~$50/month
+```
+
+<Note>
+  Switch to gemini-1.5-flash for non-order agents to reduce costs by ~90%.
+</Note>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Agent responses are inconsistent">
+    - Lower temperature (try 0.1 or 0.0)
+    - Make system prompt more explicit
+    - Add examples in prompt
+    - Use structured output format (JSON)
+  </Accordion>
+
+  <Accordion title="Agent hallucinates prices/menu items">
+    - Emphasize in prompt: "NEVER invent prices"
+    - Always require tool calls before responding
+    - Lower temperature to 0.1-0.2
+    - Add validation step to check tool was called
+  </Accordion>
+
+  <Accordion title="Rate limit errors (429)">
+    - Implement exponential backoff retry
+    - Upgrade to paid tier
+    - Reduce concurrent requests
+    - Cache common queries
+  </Accordion>
+
+  <Accordion title="Slow response times (>5s)">
+    - Use gemini-1.5-flash instead of pro
+    - Reduce maxOutputTokens
+    - Reduce context window length
+    - Check if model is overloaded (try different region)
+  </Accordion>
+
+  <Accordion title="Agent ignores tools">
+    - Ensure tools are properly connected in n8n workflow
+    - Make prompt explicitly mention: "Use consultar_platos to check menu"
+    - Test tool independently
+    - Check PostgreSQL credentials are valid
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Use appropriate models">
+    - **Classification**: Fast models (flash)
+    - **Orders**: Thinking models (pro)
+    - **General Q&A**: Fast models (flash)
+  </Step>
+
+  <Step title="Optimize prompts">
+    - Be explicit about expected format
+    - Use tags like `<ROL>`, `<REGLAS>` for structure
+    - Include examples for complex outputs
+    - Keep system prompts under 2000 tokens
+  </Step>
+
+  <Step title="Memory management">
+    - Match context window to conversation complexity
+    - Clear old sessions periodically in MongoDB
+    - Monitor memory collection sizes
+  </Step>
+
+  <Step title="Monitor costs">
+    - Log token usage per request
+    - Set up billing alerts in Google Cloud
+    - Review monthly usage reports
+    - Consider caching frequent queries
+  </Step>
+</Steps>
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Google AI Studio" icon="google" href="https://makersuite.google.com">
+    Test prompts and get API keys
+  </Card>
+  <Card title="LangChain Docs" icon="link" href="https://js.langchain.com/docs/integrations/chat/google_generativeai">
+    LangChain Google AI integration
+  </Card>
+  <Card title="Order Service" icon="receipt" href="/services/orders">
+    See AI agents in action
+  </Card>
+  <Card title="Procesador Workflow" icon="gear" href="/workflows/procesador">
+    Complete agent orchestration
+  </Card>
+</CardGroup>

@@ -1,0 +1,262 @@
+---
+title: WhatsApp Business API
+description: Configure Meta WhatsApp Business API for receiving and sending messages
+icon: whatsapp
+---
+
+The WhatsApp Business API integration enables the platform to receive customer messages via webhooks and send automated responses through Meta's Cloud API.
+
+## Prerequisites
+
+- Meta Business account
+- WhatsApp Business app registered
+- Phone number verified with Meta
+- Access token from Meta for Developers
+
+## Webhook Setup
+
+<Steps>
+  <Step title="Create webhook endpoint">
+    The platform exposes a webhook at `/webhook/meta-verify` to receive WhatsApp messages.
+
+    ```json
+    {
+      "path": "meta-verify",
+      "methods": ["GET", "POST"],
+      "responseMode": "responseNode"
+    }
+    ```
+  </Step>
+
+  <Step title="Configure webhook in Meta for Developers">
+    Navigate to your WhatsApp Business app configuration:
+
+    1. Go to **Meta for Developers Console**
+    2. Select your app → **WhatsApp** → **Configuration**
+    3. Add webhook URL: `https://your-domain.com/webhook/meta-verify`
+    4. Set verify token: `meta-verify`
+    5. Subscribe to **messages** field
+  </Step>
+
+  <Step title="Verify webhook challenge">
+    Meta sends a GET request with parameters to verify ownership:
+
+    ```javascript
+    // Verification logic
+    if (query['hub.mode'] === 'subscribe' && 
+        query['hub.verify_token'] === 'meta-verify') {
+      return query['hub.challenge']; // Return challenge as plain text
+    }
+    ```
+
+    The webhook validates:
+    - `hub.mode` equals "subscribe"
+    - `hub.verify_token` matches "meta-verify"
+    - Returns `hub.challenge` with status 200
+  </Step>
+</Steps>
+
+## Message Reception
+
+When WhatsApp receives a message, Meta sends a POST request with this structure:
+
+<CodeGroup>
+```json Incoming Message Structure
+{
+  "object": "whatsapp_business_account",
+  "entry": [{
+    "id": "746650594705809",
+    "changes": [{
+      "value": {
+        "messaging_product": "whatsapp",
+        "metadata": {
+          "display_phone_number": "15551933641",
+          "phone_number_id": "947279508470714"
+        },
+        "contacts": [{
+          "profile": { "name": "Cliente" },
+          "wa_id": "51900769907"
+        }],
+        "messages": [{
+          "from": "51900769907",
+          "id": "wamid.HBg...",
+          "timestamp": "1771142227",
+          "text": { "body": "pedido" },
+          "type": "text"
+        }]
+      },
+      "field": "messages"
+    }]
+  }]
+}
+```
+
+```javascript Message Extraction
+// Extract relevant fields for processing
+const extractedData = {
+  from: body.entry[0].changes[0].value.messages[0].from,
+  text: body.entry[0].changes[0].value.messages[0].text.body,
+  messageId: body.entry[0].changes[0].value.messages[0].id,
+  phoneNumberId: body.entry[0].changes[0].value.metadata.phone_number_id,
+  profileName: body.entry[0].changes[0].value.contacts[0].profile.name
+};
+```
+</CodeGroup>
+
+## Sending Messages
+
+To send responses back to customers, the platform uses the WhatsApp Cloud API:
+
+<CodeGroup>
+```javascript Send Text Message
+POST https://graph.facebook.com/v18.0/{phone_number_id}/messages
+
+Headers:
+  Authorization: Bearer {access_token}
+  Content-Type: application/json
+
+Body:
+{
+  "messaging_product": "whatsapp",
+  "recipient_type": "individual",
+  "to": "{customer_phone_number}",
+  "type": "text",
+  "text": {
+    "body": "¡Hola! ¿En qué puedo ayudarte hoy? 🦐"
+  }
+}
+```
+
+```javascript n8n WhatsApp Node Configuration
+{
+  "operation": "send",
+  "phoneNumberId": "{{ $json['id mensajero'] }}",
+  "recipientPhoneNumber": "{{ $json.from }}",
+  "textBody": "{{ $json.output }}",
+  "additionalFields": {}
+}
+```
+</CodeGroup>
+
+## Credentials Configuration
+
+Store these credentials securely in n8n or environment variables:
+
+| Field | Description | Example |
+|-------|-------------|----------|
+| **Access Token** | Meta app access token | `EAABsbCS...` |
+| **Phone Number ID** | WhatsApp Business phone number ID | `947279508470714` |
+| **Verify Token** | Custom token for webhook verification | `meta-verify` |
+| **Webhook URL** | Public endpoint for receiving messages | `https://server.com/webhook/meta-verify` |
+
+<Note>
+  Access tokens expire periodically. Use system user tokens for production to avoid expiration.
+</Note>
+
+## Error Handling
+
+The webhook implements multiple error response scenarios:
+
+<CodeGroup>
+```javascript Verification Failed
+// Returns 403 if verification fails
+if (hub.mode !== 'subscribe' || hub.verify_token !== 'meta-verify') {
+  return {
+    statusCode: 403,
+    body: 'Forbidden'
+  };
+}
+```
+
+```javascript Empty Message Filter
+// Filters out empty messages or status updates
+if (!messages || !messages[0]?.text?.body || statuses) {
+  return {
+    statusCode: 403,
+    body: 'Forbidden'
+  };
+}
+```
+
+```javascript Success Response
+// Always return 200 OK to Meta
+return {
+  statusCode: 200,
+  headers: { 'Content-Type': 'text/plain' },
+  body: 'OK'
+};
+```
+</CodeGroup>
+
+<Warning>
+  **Critical**: Always return HTTP 200 to Meta within 20 seconds, even if processing fails. Use asynchronous processing for long-running tasks.
+</Warning>
+
+## Rate Limits
+
+- **Business (unverified)**: 1,000 conversations per 24 hours
+- **Business (verified)**: Unlimited conversations
+- **Message rate**: 80 messages/second per phone number
+- **Webhook timeout**: 20 seconds
+
+## Testing
+
+Test your webhook integration:
+
+<Steps>
+  <Step title="Test verification">
+    ```bash
+    curl "https://your-domain.com/webhook/meta-verify?hub.mode=subscribe&hub.verify_token=meta-verify&hub.challenge=TEST123"
+    # Should return: TEST123
+    ```
+  </Step>
+
+  <Step title="Send test message">
+    Send a message from your phone to the WhatsApp Business number and verify:
+    - Webhook receives the message
+    - Message is extracted correctly
+    - Response is sent back
+  </Step>
+
+  <Step title="Check webhook logs">
+    Monitor webhook calls in Meta for Developers:
+    - **Configuration** → **Webhooks** → **Test**
+    - Verify all messages show status 200
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Webhook verification fails">
+    - Verify the verify token matches exactly: `meta-verify`
+    - Check that webhook URL is publicly accessible
+    - Ensure HTTPS is properly configured
+    - Return challenge as plain text, not JSON
+  </Accordion>
+
+  <Accordion title="Messages not received">
+    - Check webhook is subscribed to **messages** field
+    - Verify phone number has active WhatsApp Business API
+    - Check webhook logs in Meta console for errors
+    - Ensure endpoint returns 200 within 20 seconds
+  </Accordion>
+
+  <Accordion title="Cannot send messages">
+    - Verify access token is valid and not expired
+    - Check phone number ID matches the business number
+    - Ensure recipient number is in E.164 format (e.g., `51900769907`)
+    - Verify message template is approved (for initial contact)
+  </Accordion>
+</AccordionGroup>
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="WhatsApp Cloud API Docs" icon="book" href="https://developers.facebook.com/docs/whatsapp/cloud-api">
+    Official Meta documentation
+  </Card>
+  <Card title="Receptor Workflow" icon="diagram-project" href="/workflows/receptor">
+    See how messages are processed
+  </Card>
+</CardGroup>

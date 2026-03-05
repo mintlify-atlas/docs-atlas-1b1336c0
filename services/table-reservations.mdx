@@ -1,0 +1,278 @@
+---
+title: 'Table Reservations'
+description: 'Dining table booking system for 2-12 guests (partially implemented)'
+icon: 'chair'
+---
+
+The **Table Reservations** service allows customers to book tables for dining in at Picantería Lurwis via WhatsApp. The system is handled by the **Agente Reserva Mesas** (Table Reservation Agent).
+
+<Warning>
+**Implementation Status**: This service is partially implemented. The AI agent is configured with conversation logic, but the database operations and availability checking tools are not yet fully connected. The agent can collect reservation details but cannot yet confirm actual bookings.
+</Warning>
+
+## How It Works
+
+When the [Clasificador agent](/workflows/procesador) detects table reservation intent (explicit mentions of "reservar mesa" or "ir a comer al local"), it routes to the **Agente Reserva Mesas**.
+
+<Steps>
+  <Step title="Intent Classification">
+    Messages are classified as RESERVAS_MESA when customers explicitly mention:
+    - "Quiero reservar una mesa"
+    - "Vamos a ir a comer al local"
+    - "Mesa para 4 personas mañana"
+  </Step>
+
+  <Step title="Information Collection">
+    Wilson collects the required booking details:
+    - Date and time of reservation
+    - Number of guests (2-12 people)
+    - Customer contact number
+    - Any special requests
+  </Step>
+
+  <Step title="Availability Validation">
+    **⚠️ Pending Implementation**
+    
+    Planned tools:
+    - `consultar_disponibilidad`: Check table availability
+    - `registrar_reserva`: Save confirmed reservation
+  </Step>
+
+  <Step title="Confirmation">
+    **⚠️ Pending Implementation**
+    
+    Once tools are connected, customers will receive:
+    - Reservation confirmation number
+    - Table assignment
+    - Arrival instructions
+  </Step>
+</Steps>
+
+## Agent Capabilities
+
+**Wilson - Reservas** is designed to:
+
+- **Validate party size**: 2-12 guests (larger groups → venue reservations)
+- **Confirm date/time**: Within operating hours (10:00 AM - 11:00 PM)
+- **Collect contact info**: Phone number for confirmation
+- **Handle special requests**: Dietary restrictions, occasion celebrations
+
+### Agent Personality
+
+```json
+{
+  "name": "Wilson - Reservas",
+  "identity": "Especialista en reservas de la PICANTERÍA LURWIS",
+  "objective": "Asegurar que el cliente tenga su mesa lista",
+  "tone": "Amable, rápido y carismático"
+}
+```
+
+## Current Workflow (As-Is)
+
+<Accordion title="Sample Conversation Flow">
+**Customer**: Quiero reservar una mesa para mañana
+
+**Wilson**: ¡Excelente! Me encantaría ayudarte a reservar una mesa 🪑. ¿Para cuántas personas sería y para qué hora?
+
+**Customer**: Para 4 personas a las 8pm
+
+**Wilson**: Perfecto! Mesa para 4 personas mañana a las 8:00 PM.
+
+¿Me podrías confirmar tu número de contacto y nombre completo?
+
+**Customer**: Luis Pérez, 987654321
+
+**Wilson**: ⚠️ **Current behavior**: The agent acknowledges the information but cannot yet confirm availability or create the actual reservation due to missing database integration.
+
+**Expected future response**: 
+"¡Listo Luis! Tu reserva está confirmada:
+- Fecha: [date]
+- Hora: 8:00 PM  
+- Mesa para: 4 personas
+- Confirmación: #RES123
+
+Te esperamos en Picantería Lurwis 🦐"
+</Accordion>
+
+## Planned Database Integration
+
+The system is designed to use MongoDB collections for reservation management:
+
+### Collection: `reservas_mesas`
+
+**Pending creation** - Expected schema:
+
+```javascript
+{
+  reserva_id: ObjectId,
+  telefono: String,
+  cliente_nombre: String,
+  fecha_reserva: ISODate,
+  hora_reserva: String,
+  num_personas: Number,
+  estado: String, // 'pendiente', 'confirmada', 'cancelada', 'completada'
+  mesa_asignada: Number,
+  notas_especiales: String,
+  created_at: ISODate,
+  updated_at: ISODate
+}
+```
+
+## Planned Tools
+
+<Accordion title="consultar_disponibilidad (Not Yet Implemented)">
+**Purpose**: Check table availability for requested date/time
+
+**Expected Parameters**:
+- `fecha`: Date in YYYY-MM-DD format
+- `hora`: Time in HH:MM format  
+- `num_personas`: Number of guests
+
+**Expected Response**:
+```json
+{
+  "disponible": true,
+  "mesas_libres": [1, 3, 5],
+  "capacidad_total": 50,
+  "ocupadas": 12
+}
+```
+</Accordion>
+
+<Accordion title="registrar_reserva (Not Yet Implemented)">
+**Purpose**: Create confirmed table reservation
+
+**Expected Parameters**:
+- `cliente_nombre`: Full name
+- `telefono`: Contact phone
+- `fecha_reserva`: Date
+- `hora_reserva`: Time
+- `num_personas`: Guest count
+- `mesa_asignada`: Table number
+
+**Expected Response**:
+```json
+{
+  "reserva_id": "RES123456",
+  "confirmada": true,
+  "mesa": 5
+}
+```
+</Accordion>
+
+## Business Rules
+
+### Party Size Limits
+
+- **2-12 guests**: Handled by table reservations service
+- **13+ guests**: Automatically routed to [Venue Reservations](/services/venue-reservations) for event coordination
+
+<Note>
+If a customer requests a table for more than 12 people, Wilson should respond:
+
+"Para grupos de más de 12 personas, te recomiendo hablar con nuestro coordinador de eventos para una mejor experiencia. ¿Te gustaría que te conecte con ellos?"
+</Note>
+
+### Operating Hours
+
+Reservations can only be made within:
+- **Hours**: 10:00 AM - 11:00 PM
+- **Timezone**: America/Lima
+- **Same-day**: Accepted if sufficient notice (minimum 2 hours recommended)
+
+### Cancellation Policy
+
+**⚠️ Not yet implemented**
+
+Planned logic:
+- Customers can cancel via WhatsApp
+- Cancellation detection keywords: "cancelar reserva", "ya no voy"
+- Status update: `estado: 'cancelada'`
+
+## Technical Details
+
+**Agent Model**: Google Gemini (fast model for quick responses)
+**Memory**: MongoDB collection `historial_reservas` (15 message context window)
+**Database**: MongoDB (planned collection `reservas_mesas` - not yet created)
+**Tools**: Two planned tools - both pending implementation
+
+### System Configuration
+
+From the workflow JSON:
+
+```json
+{
+  "name": "Agente Reserva Mesas",
+  "type": "@n8n/n8n-nodes-langchain.agent",
+  "position": [4480, 1600],
+  "tools": ["mensaje", "consultar_disponibilidad", "registrar_reserva"],
+  "memory": "historial_reservas"
+}
+```
+
+## Implementation Notes
+
+From the workflow sticky notes:
+
+> **NOTA 6.2**: "Este agente se ocupa netamente de las reservas de mesas. Aún no está en uso (falta lógica) y creación de collections en mongoDB."
+
+### What's Missing
+
+<Warning>
+To make this service fully functional, the following must be completed:
+
+1. **MongoDB Collection**: Create `reservas_mesas` collection with schema
+2. **Availability Tool**: Implement `consultar_disponibilidad` to check table capacity
+3. **Booking Tool**: Implement `registrar_reserva` to save confirmed reservations  
+4. **Notification System**: Send confirmation messages with reservation details
+5. **CRM Integration**: Connect reservations to admin dashboard (if available)
+</Warning>
+
+### Recommended Implementation Order
+
+<Steps>
+  <Step title="Database Setup">
+    Create MongoDB collection `reservas_mesas` with proper indexes on `fecha_reserva` and `telefono`
+  </Step>
+
+  <Step title="Availability Logic">
+    Build `consultar_disponibilidad` tool:
+    - Query existing reservations for date/time
+    - Calculate table capacity vs. bookings
+    - Return available tables list
+  </Step>
+
+  <Step title="Booking Tool">
+    Build `registrar_reserva` tool:
+    - Validate inputs
+    - Assign table number
+    - Generate reservation ID
+    - Save to MongoDB
+  </Step>
+
+  <Step title="Testing">
+    Test complete flow:
+    - Happy path (successful booking)
+    - No availability scenario  
+    - Cancellation flow
+    - Same-day reservations
+  </Step>
+</Steps>
+
+## Future Enhancements
+
+Once the base system is implemented:
+
+- **SMS Confirmations**: Send SMS in addition to WhatsApp
+- **Reminder System**: Automated reminders 2 hours before reservation
+- **Waitlist**: Allow customers to join waitlist if no tables available
+- **Table Preferences**: Window seats, outdoor seating, etc.
+- **Loyalty Integration**: Priority booking for repeat customers
+
+## See Also
+
+- [Procesador Workflow](/workflows/procesador) - Agent routing and classification
+- [Venue Reservations](/services/venue-reservations) - For larger events (13+ guests)
+- [MongoDB Integration](/integrations/mongodb) - Database setup and configuration
+- [Order System](/services/orders) - Fully implemented service example

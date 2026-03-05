@@ -1,0 +1,219 @@
+---
+title: 'General Inquiries'
+description: 'Static information responses about location, hours, payment methods, and business details'
+icon: 'circle-info'
+---
+
+The **General Inquiries** service handles common customer questions about the restaurant through the **Agente General** (General Agent). This agent provides quick, accurate responses to frequently asked questions without requiring complex database queries.
+
+## How It Works
+
+When the [Clasificador agent](/workflows/procesador) detects a general inquiry (questions about location, hours, payment methods), it routes the conversation to the **Agente General**.
+
+<Steps>
+  <Step title="Classification">
+    The system classifies messages as GENERAL when:
+    - Customer asks about location: "¿Dónde quedan?"
+    - Inquires about hours: "¿Hasta qué hora atienden?"
+    - Asks about payment: "¿Aceptan Yape?"
+    - No clear ordering or reservation intent is detected
+  </Step>
+
+  <Step title="Information Retrieval">
+    Wilson uses the **buscar_info_general** tool (a code-based tool) to retrieve static information about:
+    - Business location (Chiclayo with Google Maps link)
+    - Payment methods (Yape, Plin, Efectivo, Tarjeta)
+    - Operating hours
+    - Social media links
+    - Contact information
+  </Step>
+
+  <Step title="Response Delivery">
+    The agent provides direct answers with relevant emojis (🦐👋) maintaining the friendly Wilson personality.
+  </Step>
+</Steps>
+
+## Agent Personality
+
+**Wilson - Info** is characterized by:
+
+- **Role**: Customer service assistant for Picantería Lurwis in Chiclayo
+- **Tone**: Friendly, fast, charismatic
+- **Style**: Uses seafood and service emojis 🦐👋
+- **Behavior**: Silent tool execution (never narrates "I'm checking..." or "Let me search...")
+
+<Note>
+The agent is programmed to execute tools invisibly and respond with final information only. Customers never see internal processing messages.
+</Note>
+
+## Critical Rules
+
+### Silent Tool Execution
+
+The agent has **absolute prohibition** against narrating its actions:
+
+❌ **NEVER say**:
+- "Voy a consultar..."
+- "Déjame revisar..."
+- "Un momento..."
+- "Estoy buscando..."
+
+✅ **ALWAYS respond** with direct information:
+- "Estamos ubicados en Chiclayo, Perú. Aquí está el mapa: [link]"
+- "Aceptamos Yape, Plin, Efectivo y Tarjeta"
+
+### No Hallucinations
+
+The agent must **NEVER invent**:
+- Operating hours
+- Addresses or locations  
+- Prices or menu items
+- Availability information
+
+If the customer asks about topics outside the general information scope (specific prices, table availability), the agent politely explains that other departments handle those inquiries.
+
+### Order Intent Detection
+
+If the agent detects that a customer wants to order food or see the menu during a general inquiry conversation, it must:
+
+1. **Stop** providing informational responses
+2. **Invite** the customer to switch departments
+3. **Provide exact instruction**: "Si deseas ver nuestro menú y ordenar, por favor responde a este mensaje diciendo exactamente: *Quiero hacer un pedido* 📝🦐"
+
+## Information Provided
+
+The **buscar_info_general** tool provides responses about:
+
+<Accordion title="Location">
+**Response includes**:
+- City: Chiclayo, Perú
+- Google Maps link to restaurant
+- Landmark references if available
+
+**Example**:
+"Nos encontramos en Chiclayo 🏙️. Aquí está nuestra ubicación exacta: [Google Maps URL]"
+</Accordion>
+
+<Accordion title="Payment Methods">
+**Accepted payments**:
+- Yape 📱
+- Plin 📱
+- Efectivo (Cash) 💵
+- Tarjeta (Card) 💳
+
+**Example**:
+"Aceptamos Yape, Plin, Efectivo y Tarjeta para tu comodidad 💳"
+</Accordion>
+
+<Accordion title="Operating Hours">
+**Schedule**:
+- **Open**: 10:00 AM - 11:00 PM (America/Lima timezone)
+- **Closed**: Outside operating hours
+
+**Example**:
+"Nuestro horario de atención es de 10:00 AM a 11:00 PM todos los días 🦐"
+</Accordion>
+
+<Accordion title="Social Media & Contact">
+Provides links to:
+- Facebook page
+- Instagram profile
+- WhatsApp contact (if different from current chat)
+- Website (if available)
+</Accordion>
+
+## Conversation Examples
+
+<Accordion title="Location Inquiry">
+**Customer**: Hola, ¿dónde quedan?
+
+**Wilson**: ¡Hola! 👋 Nos encontramos en Chiclayo, Perú 🏙️. Aquí está nuestra ubicación exacta en Google Maps: [link]
+
+¿Hay algo más en lo que pueda ayudarte? 🦐
+</Accordion>
+
+<Accordion title="Payment Method Question">
+**Customer**: ¿Aceptan Yape?
+
+**Wilson**: ¡Claro que sí! 📱 Aceptamos Yape, Plin, Efectivo y Tarjeta para tu mayor comodidad 💳
+
+¿Te gustaría hacer un pedido?
+</Accordion>
+
+<Accordion title="Hours Inquiry with Redirect">
+**Customer**: ¿Hasta qué hora atienden? Quiero pedir comida
+
+**Wilson**: Nuestro horario es de 10:00 AM a 11:00 PM todos los días 🦐
+
+Veo que quieres hacer un pedido. Si deseas ver nuestro menú y ordenar, por favor responde a este mensaje diciendo exactamente: *Quiero hacer un pedido* 📝🦐
+</Accordion>
+
+## Out-of-Scope Handling
+
+When customers ask questions beyond general information:
+
+**Specific Prices**: 
+"Para consultar precios específicos de nuestros platos, por favor di: *Quiero hacer un pedido* y te mostraré el menú completo con precios."
+
+**Table Availability**:
+"Para reservas de mesa, permíteme transferirte con nuestro equipo de reservas. [Transfer logic pending implementation]"
+
+**Event Bookings**:
+"Para eventos especiales y reserva del local completo, permíteme conectarte con nuestro coordinador de eventos. [Transfer logic pending implementation]"
+
+<Warning>
+The general inquiries agent should NOT attempt to answer questions about:
+- Specific dish availability
+- Real-time table availability  
+- Pricing for individual menu items
+- Order status (this requires order history access)
+</Warning>
+
+## Technical Details
+
+**Agent Model**: Google Gemini (fast chat model for quick responses)
+**Memory**: MongoDB collection `historial_general` (10 message context window)
+**Tools**: Custom code tool `buscar_info_general` with static data responses
+**Response Format**: WhatsApp-formatted text with emojis
+
+### System Prompt Structure
+
+The agent operates under these core directives:
+
+```
+<rol>
+Eres Wilson - Info, el asistente de atención al cliente de la 
+Picantería Lurwis en Chiclayo. Eres amable, rápido, carismático 
+y usas emojis de comida marina o atención 🦐👋.
+</rol>
+
+<reglas_criticas>
+1. SILENCIO ABSOLUTO SOBRE TUS HERRAMIENTAS
+2. Ejecuta la herramienta 'buscar_info_general' de forma invisible
+3. NO ALUCINAR: NUNCA inventes horarios, direcciones o precios
+4. FUERA DE CONTEXTO: Deriva a otras áreas cuando sea necesario
+</reglas_criticas>
+```
+
+## Integration Points
+
+- **Clasificador Agent**: Receives GENERAL-classified conversations
+- **MongoDB Memory**: Maintains conversation context via `historial_general`
+- **WhatsApp API**: Sends formatted responses with proper emoji rendering
+- **Operating Hours Check**: Inherits from main processor's business hours validation
+
+## Future Enhancements
+
+<Note>
+The general inquiries service is currently functional but may be enhanced with:
+- Dynamic FAQ database (currently uses static code responses)
+- Multi-language support (English/Spanish)
+- Integration with live chat for complex inquiries
+- Analytics on most common questions
+</Note>
+
+## See Also
+
+- [Procesador Workflow](/workflows/procesador) - Agent classification logic
+- [Order System](/services/orders) - How to redirect customers to ordering
+- [MongoDB Integration](/integrations/mongodb) - Memory storage details

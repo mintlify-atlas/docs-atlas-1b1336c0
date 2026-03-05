@@ -1,80 +1,376 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart'
+description: 'Configura Automatización Lurwis desde cero en menos de 30 minutos'
+icon: 'rocket'
 ---
 
-## Get started in three steps
+## Requisitos Previos
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Antes de comenzar, asegúrate de tener acceso a:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="n8n Instalado" icon="gear">
+    Instancia de n8n en self-hosted o n8n Cloud (recomendado: v1.0+)
+  </Card>
+  
+  <Card title="PostgreSQL" icon="database">
+    Base de datos PostgreSQL 14+ con extensión `pgcrypto` habilitada
+  </Card>
+  
+  <Card title="MongoDB" icon="leaf">
+    Cluster de MongoDB (puede ser MongoDB Atlas gratuito)
+  </Card>
+  
+  <Card title="Redis" icon="bolt">
+    Instancia de Redis 6+ (puede ser Upstash Redis gratuito)
+  </Card>
 </CardGroup>
 
+<Info>
+  También necesitarás una cuenta de **WhatsApp Business API** (Meta) y una API Key de **Google Gemini** (disponible en [AI Studio](https://aistudio.google.com)).
+</Info>
+
+## Paso 1: Configurar Base de Datos PostgreSQL
+
+### Crear la Base de Datos
+
+Conecta a tu servidor PostgreSQL y ejecuta:
+
+```sql
+CREATE DATABASE picanteria_lurwis;
+\c picanteria_lurwis;
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+```
+
+### Crear Tablas del Menú
+
+Ejecuta el siguiente schema para crear las tablas necesarias:
+
+```sql
+-- Tabla de Categorías
+CREATE TABLE categorias (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(100) NOT NULL,
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Tabla de Platos
+CREATE TABLE platos (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(200) NOT NULL,
+  descripcion TEXT,
+  categoria_id INTEGER REFERENCES categorias(id),
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Tabla de Precios por Tamaño
+CREATE TABLE plato_precios (
+  id SERIAL PRIMARY KEY,
+  plato_id INTEGER REFERENCES platos(id),
+  tamanio VARCHAR(50) NOT NULL, -- 'Personal', 'Familiar', 'Único'
+  precio DECIMAL(10,2) NOT NULL,
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Tabla de Pedidos
+CREATE TABLE pedidos_picanteria (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  telefono VARCHAR(20) NOT NULL,
+  cliente_nombre VARCHAR(200),
+  detalle_pedido JSONB NOT NULL,
+  total_final DECIMAL(10,2) NOT NULL,
+  metodo_pago VARCHAR(50), -- 'Yape', 'Plin', 'Efectivo', 'Tarjeta'
+  tipo_servicio VARCHAR(50), -- 'Delivery', 'Recojo'
+  direccion TEXT,
+  estado_pedido VARCHAR(50) DEFAULT 'confirmado', -- 'confirmado', 'en_preparacion', 'entregado', 'cancelado'
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_pedidos_telefono ON pedidos_picanteria(telefono);
+CREATE INDEX idx_pedidos_estado ON pedidos_picanteria(estado_pedido);
+```
+
+### Insertar Datos de Ejemplo
+
+Para probar el sistema, inserta algunas categorías y platos:
+
+```sql
+-- Insertar Categorías
+INSERT INTO categorias (nombre) VALUES 
+  ('Ceviches'),
+  ('Chicharrones'),
+  ('Sudados'),
+  ('Jaleas'),
+  ('Bebidas');
+
+-- Insertar Platos
+INSERT INTO platos (nombre, descripcion, categoria_id) VALUES 
+  ('Ceviche de Pescado', 'Ceviche fresco de pescado con leche de tigre', 1),
+  ('Ceviche Mixto', 'Pescado, calamar, pulpo y langostinos', 1),
+  ('Chicharrón de Calamar', 'Calamar frito crujiente con yucas y salsa criolla', 2),
+  ('Parihuela', 'Sopa de mariscos con pescado y langostinos', 3),
+  ('Inca Kola 1.5L', 'Bebida nacional del Perú', 5);
+
+-- Insertar Precios
+INSERT INTO plato_precios (plato_id, tamanio, precio) VALUES 
+  (1, 'Personal', 25.00),
+  (1, 'Familiar', 65.00),
+  (2, 'Personal', 35.00),
+  (2, 'Familiar', 85.00),
+  (3, 'Personal', 30.00),
+  (3, 'Familiar', 70.00),
+  (4, 'Único', 28.00),
+  (5, 'Único', 8.00);
+```
+
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Asegúrate de adaptar el menú con los platos reales de tu restaurante. El sistema usa las columnas `activo` para controlar qué platos están disponibles sin borrar datos.
 </Note>
+
+## Paso 2: Configurar MongoDB
+
+### Crear Base de Datos y Colecciones
+
+Si usas MongoDB Atlas, crea un cluster gratuito y obtén tu connection string. El sistema creará automáticamente las colecciones cuando los agentes ejecuten por primera vez:
+
+- `historial_clasificador`
+- `historial_detector`
+- `historial_pedidos`
+- `historial_eventos`
+- `historial_reservas`
+- `historial_general`
+
+<Info>
+  No necesitas crear las colecciones manualmente. n8n las generará automáticamente usando el nodo `memoryMongoDbChat` de LangChain.
+</Info>
+
+### Connection String
+
+Tu connection string debe tener este formato:
+
+```
+mongodb+srv://username:password@cluster.mongodb.net/picanteria_db?retryWrites=true&w=majority
+```
+
+## Paso 3: Configurar Redis
+
+### Opción A: Redis Local
+
+Si usas Docker:
+
+```bash
+docker run -d --name redis-lurwis -p 6379:6379 redis:7-alpine
+```
+
+### Opción B: Upstash Redis (Recomendado)
+
+1. Crea una cuenta gratuita en [Upstash](https://upstash.com)
+2. Crea una base de datos Redis
+3. Copia el endpoint y token de conexión
+
+<Warning>
+  Redis se usa como buffer temporal con TTL de 30 segundos. Si el servidor de Redis cae, solo perderás los mensajes en tránsito (no los pedidos ya confirmados).
+</Warning>
+
+## Paso 4: Importar Workflows en n8n
+
+### Agregar Credenciales
+
+Antes de importar, configura estas credenciales en n8n:
+
+<Steps>
+  <Step title="PostgreSQL">
+    Settings → Credentials → New → Postgres
+    
+    - Host: `tu-servidor.com`
+    - Database: `picanteria_lurwis`
+    - User: `tu_usuario`
+    - Password: `tu_password`
+    - Port: `5432`
+    - SSL: Enabled (si tu servidor lo requiere)
+    
+    Nombra la credencial: **"Postgres Lurwis db"**
+  </Step>
+  
+  <Step title="MongoDB">
+    Settings → Credentials → New → MongoDB
+    
+    - Connection String: `mongodb+srv://...`
+    
+    Nombra la credencial: **"Memoria chats Lurwis"**
+  </Step>
+  
+  <Step title="Redis">
+    Settings → Credentials → New → Redis
+    
+    - Host: `tu-redis.com`
+    - Port: `6379`
+    - Password: `tu_password` (si aplica)
+    
+    Nombra la credencial: **"Buffer Lurwis"**
+  </Step>
+  
+  <Step title="Google Gemini">
+    Settings → Credentials → New → Google PaLM API
+    
+    - API Key: Obtenla en [Google AI Studio](https://aistudio.google.com/app/apikey)
+    
+    Nombra la credencial: **"Modelo Lurwis"**
+  </Step>
+  
+  <Step title="WhatsApp API">
+    Settings → Credentials → New → WhatsApp
+    
+    - Access Token: Token de Meta Business
+    - Phone Number ID: ID del número de WhatsApp Business
+    
+    Nombra la credencial: **"WhatsApp account"**
+  </Step>
+</Steps>
+
+### Importar los Workflows
+
+1. Descarga los archivos JSON de los workflows desde `source/workflows/`:
+   - `Picantería Lurwis _ Receptor.json`
+   - `Picantería Lurwis _ Procesador.json`
+
+2. En n8n, ve a **Workflows → Import from File**
+
+3. Importa primero el **Receptor**, luego el **Procesador**
+
+4. Para cada workflow:
+   - Abre el editor
+   - Verifica que todas las credenciales estén conectadas (no deben aparecer en rojo)
+   - Haz clic en **Save** para guardar
+
+<Info>
+  Si ves errores de "credential not found", verifica que los nombres de las credenciales coincidan exactamente con los mencionados arriba.
+</Info>
+
+## Paso 5: Configurar Webhook de Meta
+
+### Obtener URL del Webhook
+
+1. Abre el workflow **Picantería Lurwis | Receptor** en n8n
+2. Haz clic en el nodo **Webhook** (el primero del flujo)
+3. Copia la **Production URL** (debe verse como: `https://tu-n8n.com/webhook/meta-verify`)
+
+### Configurar en Meta Business
+
+1. Ve a [Meta for Developers](https://developers.facebook.com)
+2. Selecciona tu app de WhatsApp Business
+3. Ve a **WhatsApp → Configuration → Webhook**
+4. Pega la URL del webhook
+5. En **Verify Token**, escribe: `meta-verify` (debe coincidir con el token en el nodo IF del workflow)
+6. Suscríbete a los eventos: `messages`
+
+### Probar Verificación
+
+Meta enviará una petición GET para verificar. Si todo está correcto:
+- El workflow Receptor responderá con el `hub.challenge`
+- Verás un ✅ verde en la consola de Meta
+
+<Warning>
+  Si la verificación falla, revisa que:
+  - El workflow Receptor esté **activado** (toggle en ON)
+  - El verify token sea exactamente `meta-verify`
+  - Tu servidor n8n sea accesible públicamente (no localhost)
+</Warning>
+
+## Paso 6: Activar y Probar
+
+### Activar los Workflows
+
+<Steps>
+  <Step title="Activar Receptor">
+    En el workflow Receptor, haz clic en el toggle superior para activarlo (debe ponerse azul)
+  </Step>
+  
+  <Step title="Activar Procesador">
+    En el workflow Procesador, activa el Schedule Trigger (se ejecutará cada 10 segundos automáticamente)
+  </Step>
+</Steps>
+
+### Realizar Prueba Real
+
+1. Envía un mensaje al número de WhatsApp Business:
+   ```
+   Hola
+   ```
+
+2. Deberías recibir respuesta del agente clasificador preguntando qué necesitas
+
+3. Prueba un flujo completo de pedido:
+   ```
+   Quiero hacer un pedido
+   ```
+
+4. Sigue las instrucciones del bot:
+   - Elige categoría
+   - Selecciona plato y tamaño
+   - Proporciona nombre, dirección, método de pago
+   - Confirma diciendo "confirmo"
+
+5. Verifica en PostgreSQL que el pedido se guardó:
+   ```sql
+   SELECT * FROM pedidos_picanteria ORDER BY created_at DESC LIMIT 1;
+   ```
+
+### Ver Ejecuciones en n8n
+
+Ve a **Executions** en cada workflow para ver el log detallado:
+- **Receptor**: Debe mostrar el webhook recibido y el guardado en Redis
+- **Procesador**: Debe mostrar la clasificación, interacción con el agente y guardado en PostgreSQL
+
+<Note>
+  Si algo falla, revisa los nodos con error haciendo clic en ellos. Los mensajes de error te indicarán si es un problema de credenciales, query SQL o conexión con la IA.
+</Note>
+
+## Solución de Problemas Comunes
+
+<AccordionGroup>
+  <Accordion title="El webhook no recibe mensajes">
+    - Verifica que el workflow Receptor esté activado
+    - Confirma que la URL del webhook en Meta sea la correcta
+    - Revisa que tu servidor n8n sea accesible públicamente (usa ngrok si estás en desarrollo local)
+    - Comprueba los logs de ejecución en n8n para ver si llega algo
+  </Accordion>
+  
+  <Accordion title="El bot no responde después de varios segundos">
+    - Verifica que el Procesador esté activado con Schedule Trigger
+    - Revisa Redis con `redis-cli` y ejecuta `KEYS ts_*` para ver si hay usuarios en buffer
+    - Comprueba que las credenciales de Google Gemini estén correctas
+    - Revisa las execuciones del Procesador para ver dónde falla
+  </Accordion>
+  
+  <Accordion title="Error al guardar en PostgreSQL">
+    - Verifica que las tablas existan con el schema correcto
+    - Comprueba que la credencial de PostgreSQL tenga permisos de INSERT/UPDATE
+    - Revisa el nodo de código JavaScript que formatea el JSON del pedido
+    - Verifica que el campo `detalle_pedido` sea de tipo JSONB en la tabla
+  </Accordion>
+  
+  <Accordion title="El agente alucina precios o platos inexistentes">
+    - Asegúrate de que los prompts de sistema incluyan la regla de "NO ALUCINAR"
+    - Verifica que las herramientas SQL (`consultar_categorias`, `consultar_platos`, `verificar_plato`) funcionen correctamente
+    - Prueba ejecutar manualmente las queries SQL para confirmar que devuelvan datos
+  </Accordion>
+</AccordionGroup>
+
+## Próximos Pasos
+
+<CardGroup cols={2}>
+  <Card title="Arquitectura Detallada" icon="sitemap" href="/architecture">
+    Entiende cómo fluyen los datos entre componentes y el rol de cada agente
+  </Card>
+  
+  <Card title="Workflows Individuales" icon="diagram-project" href="/workflows/receptor">
+    Explora en profundidad cada nodo del Receptor y Procesador
+  </Card>
+</CardGroup>

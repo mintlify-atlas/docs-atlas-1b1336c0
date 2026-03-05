@@ -1,0 +1,435 @@
+---
+title: 'Environment Variables'
+description: 'Complete reference for all required environment variables and API credentials'
+icon: 'key'
+---
+
+# Environment Variables
+
+Comprehensive guide to all environment variables required for Automatización Lurwis.
+
+---
+
+## n8n Core Configuration
+
+### Basic Settings
+
+```bash
+# Authentication
+N8N_BASIC_AUTH_ACTIVE=true
+N8N_BASIC_AUTH_USER=admin
+N8N_BASIC_AUTH_PASSWORD=your-secure-password
+
+# Host Configuration
+N8N_HOST=your-domain.com
+N8N_PORT=5678
+N8N_PROTOCOL=https
+WEBHOOK_URL=https://your-domain.com
+
+# Execution Mode
+EXECUTIONS_PROCESS=main
+```
+
+<Warning>
+  **Security Critical**: Never use default passwords in production. Use a password manager to generate strong credentials.
+</Warning>
+
+### Advanced Settings
+
+```bash
+# Execution History
+EXECUTIONS_DATA_SAVE_ON_ERROR=all
+EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+EXECUTIONS_DATA_PRUNE=true
+EXECUTIONS_DATA_MAX_AGE=336  # 14 days in hours
+
+# Performance
+N8N_CONCURRENCY=10
+NODE_OPTIONS=--max-old-space-size=4096
+
+# Monitoring
+N8N_METRICS=true
+N8N_LOG_LEVEL=info
+```
+
+---
+
+## WhatsApp Business API
+
+### Meta Platform Credentials
+
+```bash
+# WhatsApp Business Account
+WHATSAPP_API_TOKEN=your-meta-access-token
+WHATSAPP_PHONE_NUMBER_ID=947279508470714
+WHATSAPP_BUSINESS_ACCOUNT_ID=746650594705809
+
+# Webhook Configuration
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=meta-verify
+WHATSAPP_WEBHOOK_PATH=/webhook/meta-verify
+```
+
+### How to Obtain Credentials
+
+<Steps>
+  <Step title="Access Meta Developer Console">
+    1. Go to [Meta for Developers](https://developers.facebook.com/)
+    2. Navigate to your WhatsApp Business App
+  </Step>
+
+  <Step title="Get Access Token">
+    - Go to **WhatsApp** → **API Setup**
+    - Copy the temporary access token
+    - For production: Generate a permanent token
+  </Step>
+
+  <Step title="Get Phone Number ID">
+    - In **API Setup**, find your test phone number
+    - Copy the **Phone number ID** (visible in workflow: `947279508470714`)
+  </Step>
+
+  <Step title="Configure Webhook">
+    - Go to **WhatsApp** → **Configuration**
+    - Callback URL: `https://your-domain.com/webhook/meta-verify`
+    - Verify Token: `meta-verify`
+    - Subscribe to: **messages** field
+  </Step>
+</Steps>
+
+<Info>
+  The webhook must return a 200 status with the `hub.challenge` parameter for Meta verification to succeed.
+</Info>
+
+---
+
+## Database Connections
+
+### PostgreSQL (Orders & Menu)
+
+```bash
+# Connection Details
+POSTGRES_HOST=your-postgres-host.com
+POSTGRES_PORT=5432
+POSTGRES_DB=picanteria_db
+POSTGRES_USER=lurwis_user
+POSTGRES_PASSWORD=your-secure-password
+POSTGRES_SSL=true
+
+# Session Pooler (Recommended)
+POSTGRES_CONNECTION_STRING=postgresql://lurwis_user:password@host:5432/picanteria_db?sslmode=require
+```
+
+<Note>
+  The workflows use a **session pooler connection** with **Row Level Security (RLS)** enabled as noted in the workflow comments.
+</Note>
+
+### Tables Used by Workflows
+
+The PostgreSQL database includes:
+
+- `pedidos_picanteria` - Customer orders
+- `categorias` - Menu categories
+- `platos` - Menu items
+- `plato_precios` - Item pricing by size
+
+### MongoDB (Conversation Memory)
+
+```bash
+# Connection String
+MONGODB_CONNECTION_STRING=mongodb+srv://user:password@cluster.mongodb.net/
+MONGODB_DATABASE=picanteria_db
+
+# Authentication
+MONGODB_USER=lurwis_user
+MONGODB_PASSWORD=your-secure-password
+```
+
+### Memory Collections
+
+The system uses separate MongoDB collections for each conversation context:
+
+| Collection | Purpose | Context Window |
+|------------|---------|----------------|
+| `historial_clasificador` | Message intent classification | Default |
+| `historial_detector` | Order detection | Default |
+| `historial_pedidos` | Order conversations | 25 messages |
+| `historial_eventos` | Venue event bookings | 15 messages |
+| `historial_reservas` | Table reservations | 15 messages |
+| `historial_general` | General inquiries | 10 messages |
+
+<Info>
+  Each agent has its own collection to maintain precise conversation context and enable accurate metrics.
+</Info>
+
+---
+
+## Redis (Message Buffer)
+
+### Connection Settings
+
+```bash
+REDIS_HOST=your-redis-host.com
+REDIS_PORT=6379
+REDIS_PASSWORD=your-redis-password
+REDIS_DB=0
+
+# Optional: TLS for production
+REDIS_TLS=true
+```
+
+### Buffer Configuration
+
+The Receptor workflow uses Redis for message buffering:
+
+- **Purpose**: Aggregate rapid messages into a single context
+- **Buffer Window**: 8 seconds (configurable)
+- **TTL Values**:
+  - `buffer_{userId}`: 30 seconds
+  - `ts_{userId}`: 30 seconds (timestamp)
+  - `meta_{userId}`: 120 seconds (metadata)
+
+<Warning>
+  Redis is critical for preventing message fragmentation. Ensure it's highly available in production.
+</Warning>
+
+---
+
+## AI & Language Models
+
+### Google Gemini
+
+```bash
+# API Configuration
+GOOGLE_GEMINI_API_KEY=your-gemini-api-key
+GOOGLE_GEMINI_MODEL=gemini-1.5-flash  # Fast classification
+GOOGLE_GEMINI_MODEL_PRO=gemini-1.5-pro  # Order processing
+```
+
+### How to Get Gemini API Key
+
+<Steps>
+  <Step title="Access Google AI Studio">
+    Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+  </Step>
+
+  <Step title="Create API Key">
+    1. Click **Create API Key**
+    2. Select or create a Google Cloud project
+    3. Copy the generated key
+  </Step>
+
+  <Step title="Configure billing">
+    - Free tier: 60 requests/minute
+    - Production: Enable billing for higher limits
+  </Step>
+</Steps>
+
+### Agent Models
+
+The Procesador workflow uses different models for different agents:
+
+- **Clasificador** (Classifier): Fast model for intent detection
+- **Agente Pedidos** (Orders): Pro model with reasoning capability
+- **Other Agents**: Fast models (General, Reservations, Events)
+
+---
+
+## Optional Services
+
+### Error Notifications
+
+```bash
+# Personal WhatsApp for error alerts
+ERROR_NOTIFICATION_PHONE=51900769907  # From workflow pinData
+ERROR_NOTIFICATION_ENABLED=true
+```
+
+The workflows mention an error workflow connected to a personal WhatsApp for real-time error monitoring.
+
+### Monitoring & Logging
+
+```bash
+# Application Monitoring
+N8N_METRICS=true
+N8N_METRICS_INCLUDE_DEFAULT_METRICS=true
+N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL=true
+
+# External Monitoring (Optional)
+SENTRY_DSN=your-sentry-dsn
+DATADOG_API_KEY=your-datadog-key
+```
+
+---
+
+## Environment-Specific Configurations
+
+### Development
+
+```bash
+# .env.development
+N8N_HOST=localhost
+N8N_PROTOCOL=http
+N8N_PORT=5678
+WEBHOOK_URL=http://localhost:5678
+N8N_LOG_LEVEL=debug
+EXECUTIONS_DATA_SAVE_ON_SUCCESS=none
+```
+
+### Staging
+
+```bash
+# .env.staging
+N8N_HOST=staging.your-domain.com
+N8N_PROTOCOL=https
+N8N_PORT=5678
+WEBHOOK_URL=https://staging.your-domain.com
+N8N_LOG_LEVEL=info
+```
+
+### Production
+
+```bash
+# .env.production
+N8N_HOST=your-domain.com
+N8N_PROTOCOL=https
+N8N_PORT=5678
+WEBHOOK_URL=https://your-domain.com
+N8N_LOG_LEVEL=warn
+EXECUTIONS_DATA_SAVE_ON_ERROR=all
+N8N_METRICS=true
+
+# Production Security
+POSTGRES_SSL=true
+REDIS_TLS=true
+N8N_BASIC_AUTH_ACTIVE=true
+```
+
+---
+
+## Environment File Template
+
+Create a `.env` file with all required variables:
+
+```bash
+# ===========================
+# n8n Configuration
+# ===========================
+N8N_BASIC_AUTH_ACTIVE=true
+N8N_BASIC_AUTH_USER=
+N8N_BASIC_AUTH_PASSWORD=
+N8N_HOST=
+N8N_PROTOCOL=https
+WEBHOOK_URL=
+
+# ===========================
+# WhatsApp Business API
+# ===========================
+WHATSAPP_API_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=meta-verify
+
+# ===========================
+# PostgreSQL Database
+# ===========================
+POSTGRES_CONNECTION_STRING=
+POSTGRES_SSL=true
+
+# ===========================
+# MongoDB Memory
+# ===========================
+MONGODB_CONNECTION_STRING=
+MONGODB_DATABASE=picanteria_db
+
+# ===========================
+# Redis Buffer
+# ===========================
+REDIS_HOST=
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_TLS=true
+
+# ===========================
+# Google Gemini AI
+# ===========================
+GOOGLE_GEMINI_API_KEY=
+
+# ===========================
+# Monitoring (Optional)
+# ===========================
+N8N_METRICS=true
+ERROR_NOTIFICATION_PHONE=
+```
+
+<Warning>
+  Copy this template to `.env` and fill in all values. Never commit `.env` to version control.
+</Warning>
+
+---
+
+## Credential Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Environment-Specific Files">
+    Separate credentials for development, staging, and production:
+    ```
+    .env.development
+    .env.staging
+    .env.production
+    ```
+  </Accordion>
+
+  <Accordion title="Rotate Credentials Regularly">
+    - API tokens: Every 90 days
+    - Database passwords: Every 6 months
+    - Webhook tokens: After any security incident
+  </Accordion>
+
+  <Accordion title="Use Secret Management">
+    For production, consider:
+    - AWS Secrets Manager
+    - HashiCorp Vault
+    - Azure Key Vault
+    - Google Cloud Secret Manager
+  </Accordion>
+
+  <Accordion title="Restrict Access">
+    - Use read-only database credentials where possible
+    - Apply least-privilege principle
+    - Enable RLS (Row Level Security) on PostgreSQL
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Verification Checklist
+
+Before deploying, verify all credentials:
+
+- [ ] n8n authentication configured
+- [ ] WhatsApp webhook verified with Meta
+- [ ] PostgreSQL connection successful
+- [ ] MongoDB collections created
+- [ ] Redis connection active
+- [ ] Google Gemini API key valid
+- [ ] All environment-specific values set
+- [ ] SSL/TLS enabled for production databases
+- [ ] Backup credentials stored securely
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Production Deployment" icon="rocket" href="/deployment/production">
+    Deploy to production with security best practices
+  </Card>
+  <Card title="Database Schema" icon="table" href="/reference/database-schema">
+    Review complete database structure
+  </Card>
+  <Card title="Troubleshooting" icon="circle-exclamation" href="/reference/troubleshooting">
+    Debug common credential issues
+  </Card>
+  <Card title="WhatsApp Integration" icon="whatsapp" href="/integrations/whatsapp-business">
+    Detailed WhatsApp setup guide
+  </Card>
+</CardGroup>

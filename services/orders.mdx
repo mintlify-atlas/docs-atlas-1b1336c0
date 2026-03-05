@@ -1,0 +1,246 @@
+---
+title: 'Order System'
+description: 'AI-powered food ordering system with menu consultation and PostgreSQL integration'
+icon: 'shopping-cart'
+---
+
+The **Order System** is the most complex service in Automatización Lurwis, powered by an AI agent that handles the complete food ordering flow via WhatsApp. Customers can browse the menu, select dishes, specify quantities and sizes, and confirm their orders through natural conversation.
+
+## How It Works
+
+When the [Clasificador agent](/workflows/procesador) detects that a customer wants to order food (keywords like "pedido", "pedir", "comer", "menú"), it routes the conversation to the **Agente Pedidos** (Orders Agent).
+
+<Steps>
+  <Step title="Customer Intent Detection">
+    The system recognizes ordering intent even with casual greetings:
+    - "Hola, quiero hacer un pedido" → Classified as PEDIDOS
+    - "Buenas noches, tienen delivery?" → Classified as PEDIDOS
+    - "Quiero 2 parihuelas" → Classified as PEDIDOS
+  </Step>
+
+  <Step title="Menu Consultation">
+    Wilson (the AI assistant) uses three PostgreSQL tools to help customers navigate the menu:
+    - **consultar_categorias**: Lists available food categories
+    - **consultar_platos**: Shows dishes within a specific category
+    - **verificar_plato**: Validates dish availability, sizes, and calculates subtotals
+  </Step>
+
+  <Step title="Order Building">
+    The agent helps customers build their order by:
+    - Collecting customer name and delivery address
+    - Selecting dishes with specific sizes (Personal, Familiar, Único)
+    - Calculating quantities and subtotals
+    - Choosing service type (Delivery or Recojo/Pickup)
+    - Selecting payment method (Yape, Plin, Efectivo, Tarjeta)
+  </Step>
+
+  <Step title="Confirmation Flow">
+    The customer must explicitly type **"confirmo"** to finalize the order:
+    - Wilson presents a complete order summary with total
+    - Customer confirms by typing "confirmo"
+    - Order is saved to PostgreSQL database
+    - Confirmation message sent via WhatsApp
+  </Step>
+</Steps>
+
+## Agent Capabilities
+
+### Menu Intelligence
+
+The Orders Agent has exclusive access to menu-specific tools:
+
+<Accordion title="consultar_categorias">
+  Queries the `categorias` table to show all active food categories:
+  ```sql
+  SELECT id, nombre 
+  FROM categorias 
+  WHERE activo = true 
+  ORDER BY id
+  ```
+</Accordion>
+
+<Accordion title="consultar_platos">
+  Retrieves dishes and their prices for a specific category:
+  ```sql
+  SELECT 
+    p.id,
+    p.nombre,
+    p.descripcion,
+    json_agg(
+      json_build_object('tamanio', pp.tamanio, 'precio', pp.precio)
+      ORDER BY pp.precio
+    ) AS precios
+  FROM platos p
+  JOIN plato_precios pp ON pp.plato_id = p.id
+  WHERE p.categoria_id = [category_id]
+  AND p.activo = true
+  AND pp.activo = true
+  GROUP BY p.id, p.nombre, p.descripcion
+  ```
+</Accordion>
+
+<Accordion title="verificar_plato">
+  Validates a specific dish selection and calculates the subtotal:
+  ```sql
+  SELECT 
+    p.nombre,
+    pp.tamanio,
+    pp.precio AS precio_unitario,
+    [cantidad] AS cantidad,
+    (pp.precio * [cantidad]) AS subtotal
+  FROM platos p
+  JOIN plato_precios pp ON pp.plato_id = p.id
+  WHERE p.id = [plato_id]
+  AND LOWER(pp.tamanio) = LOWER([tamanio])
+  ```
+</Accordion>
+
+### Order Modification
+
+If a customer already has a pending order, the system:
+
+1. **Detects existing order**: Checks PostgreSQL for orders with status NOT IN ('entregado', 'cancelado')
+2. **Analyzes intent**: Uses "Detector de pedidos" agent to determine if customer wants to:
+   - Modify/update their existing order
+   - Just check the order status
+3. **Routes accordingly**:
+   - Modification → Updates existing order in database
+   - Status inquiry → Sends current order status
+
+<Note>
+The system maintains conversation context using MongoDB's `historial_pedidos` collection, allowing the agent to remember previous interactions within the same order session.
+</Note>
+
+## Database Operations
+
+Orders are stored in the `pedidos_picanteria` table with the following workflow:
+
+### New Order
+```sql
+INSERT INTO pedidos_picanteria (
+  telefono,
+  cliente_nombre,
+  detalle_pedido,
+  total_final,
+  metodo_pago,
+  tipo_servicio,
+  direccion,
+  estado_pedido
+) VALUES (...)
+```
+
+### Order Modification
+```sql
+UPDATE pedidos_picanteria 
+SET 
+  cliente_nombre = [nombre],
+  detalle_pedido = [pedido_detallado],
+  total_final = [total],
+  metodo_pago = [metodo_pago],
+  tipo_servicio = [tipo_servicio],
+  estado_pedido = 'confirmado'
+WHERE id = [existing_order_id]
+```
+
+## Conversation Example
+
+<Accordion title="Sample Order Flow">
+**Customer**: Hola, quiero hacer un pedido
+
+**Wilson**: ¡Hola! 👋 Encantado de ayudarte. Para empezar, déjame mostrarte nuestras categorías disponibles:
+
+1. Ceviches 🐟
+2. Chicharrones 🦐
+3. Sudados 🍲
+4. Arroces 🍚
+
+¿Qué categoría te interesa?
+
+**Customer**: Ceviches
+
+**Wilson**: Excelente elección! Aquí están nuestros ceviches:
+
+1. **Ceviche Clásico** - Pescado fresco en leche de tigre
+   - Personal: S/ 25.00
+   - Familiar: S/ 45.00
+
+2. **Ceviche Mixto** - Pescado, pulpo, calamar y camarones
+   - Personal: S/ 35.00
+   - Familiar: S/ 65.00
+
+¿Cuál te gustaría?
+
+**Customer**: Quiero 2 ceviches mixtos personales
+
+**Wilson**: Perfecto! He agregado:
+- 2x Ceviche Mixto (Personal): S/ 70.00
+
+¿Algo más o procedemos con tu pedido?
+
+**Customer**: Eso es todo
+
+**Wilson**: Genial! Para completar tu pedido necesito:
+- Tu nombre completo
+- ¿Delivery o Recojo?
+- Método de pago (Yape, Plin, Efectivo, Tarjeta)
+
+**Customer**: Luis Pérez, delivery a Av. Balta 123, pago con Yape
+
+**Wilson**: Perfecto Luis Pérez! 🦐
+
+📋 **Resumen de tu pedido:**
+- 2x Ceviche Mixto (Personal)
+
+💰 **Total:** S/ 70.00
+💳 **Pago:** Yape
+🛵 **Servicio:** Delivery
+📍 **Dirección:** Av. Balta 123
+
+Para confirmar tu pedido, escribe exactamente: **confirmo**
+
+**Customer**: confirmo
+
+**Wilson**: ¡Pedido Confirmado! ✅
+
+Hola Luis Pérez 👋, hemos recibido tu orden exitosamente ¡tu orden ya está en cocina! 👨‍🍳.
+
+En cuanto su pedido esté listo le avisaremos 💫.
+</Accordion>
+
+## Business Rules
+
+<Warning>
+**Fixed Pricing Policy**: The agent is programmed to reject any haggling attempts. If a customer tries to negotiate prices, Wilson politely declines and offers the official price without proceeding to confirmation.
+</Warning>
+
+<Warning>
+**Menu Boundaries**: Wilson only handles seafood and Peruvian criolla food (ceviches, chicharrones, sudados). If customers request fast food (pizza, burgers, fried chicken), the agent immediately clarifies that Picantería Lurwis specializes exclusively in marine cuisine.
+</Warning>
+
+### Operating Hours
+
+Before processing any order, the system verifies the current time (America/Lima timezone):
+- **Open**: 10:00 AM - 11:00 PM
+- **Closed**: Automatic message sent with operating hours
+
+## Error Handling
+
+The system includes comprehensive error management:
+
+- **Database Errors**: Sends error notification to customer with reference code
+- **Invalid Dishes**: Agent validates against active menu items only
+- **Missing Data**: Prompts customer for required information
+- **Failed Confirmations**: Prevents order submission without explicit "confirmo"
+
+## Technical Details
+
+**Agent Model**: Google Gemini (thinking model for complex order processing)
+**Memory**: MongoDB collection `historial_pedidos` (25 message context window)
+**Database**: PostgreSQL tables: `categorias`, `platos`, `plato_precios`, `pedidos_picanteria`
+**Response Time**: Processes orders within the 10-second buffer window
+
+## See Also
+
+- [Procesador Workflow](/workflows/procesador) - Agent routing and classification
+- [PostgreSQL Integration](/integrations/postgresql) - Database schema details
+- [MongoDB Integration](/integrations/mongodb) - Conversation memory storage

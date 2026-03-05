@@ -1,0 +1,375 @@
+---
+title: MongoDB Conversation Memory
+description: Configure MongoDB for persistent AI agent conversation history
+icon: leaf
+---
+
+MongoDB stores conversation history for each AI agent, enabling context-aware responses across multiple customer interactions.
+
+## Overview
+
+The system uses **MongoDB Chat Memory** via LangChain to maintain separate conversation histories for different agent types:
+
+- **Classifier Agent** - Intent classification history
+- **Order Agent** - Order conversation context
+- **Reservation Agent** - Table reservation conversations
+- **Events Agent** - Venue rental discussions
+- **General Agent** - General inquiry history
+- **Detector Agent** - Order modification detection
+
+## MongoDB Setup
+
+<Steps>
+  <Step title="Create MongoDB Atlas cluster">
+    1. Sign up at [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
+    2. Create a free M0 cluster or paid tier
+    3. Set up database user with read/write permissions
+    4. Configure network access (whitelist IP addresses)
+  </Step>
+
+  <Step title="Create database and collections">
+    ```javascript
+    // Database name
+    picanteria_db
+
+    // Collections (created automatically by agents)
+    - historial_clasificador
+    - historial_pedidos
+    - historial_reservas
+    - historial_eventos
+    - historial_general
+    - historial_detector
+    ```
+  </Step>
+
+  <Step title="Get connection string">
+    From Atlas dashboard:
+    1. Click **Connect** → **Connect your application**
+    2. Select **Node.js** driver
+    3. Copy connection string
+
+    ```bash
+    mongodb+srv://username:password@cluster.mongodb.net/picanteria_db?retryWrites=true&w=majority
+    ```
+  </Step>
+</Steps>
+
+## Connection Configuration
+
+### n8n Credentials
+
+Store MongoDB credentials in n8n:
+
+<CodeGroup>
+```json n8n MongoDB Credential
+{
+  "id": "rEzqy3CH5hFmOQ2S",
+  "name": "Memoria chats Lurwis",
+  "type": "mongoDb",
+  "data": {
+    "connectionString": "mongodb+srv://user:pass@cluster.mongodb.net/",
+    "database": "picanteria_db",
+    "options": {
+      "retryWrites": true,
+      "w": "majority"
+    }
+  }
+}
+```
+
+```env Environment Variables
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/picanteria_db?retryWrites=true&w=majority
+MONGODB_DATABASE=picanteria_db
+```
+</CodeGroup>
+
+## Memory Configuration by Agent
+
+Each agent has its own memory configuration with specific session keys and context window sizes:
+
+### Classifier Agent Memory
+
+Tracks intent classification to maintain conversation flow continuity.
+
+```javascript
+{
+  "sessionIdType": "customKey",
+  "sessionKey": "{{ $('Extractormensajes').first().json.from }}",
+  "collectionName": "historial_clasificador",
+  "databaseName": "picanteria_db",
+  "contextWindowLength": 10  // Default
+}
+```
+
+### Order Agent Memory
+
+Longest context window for complex order conversations.
+
+```javascript
+{
+  "sessionIdType": "customKey",
+  "sessionKey": "{{ $('Extractormensajes').first().json.from }}",
+  "collectionName": "historial_pedidos",
+  "databaseName": "picanteria_db",
+  "contextWindowLength": 25  // Extended for order details
+}
+```
+
+### Reservation Agent Memory
+
+Medium context for table reservation details.
+
+```javascript
+{
+  "sessionIdType": "customKey",
+  "sessionKey": "{{ $('Extractormensajes').first().json.from }}",
+  "collectionName": "historial_reservas",
+  "databaseName": "picanteria_db",
+  "contextWindowLength": 15
+}
+```
+
+### Events Agent Memory
+
+Handles venue rental and event planning.
+
+```javascript
+{
+  "sessionIdType": "customKey",
+  "sessionKey": "{{ $('Extractormensajes').first().json.from }}",
+  "collectionName": "historial_eventos",
+  "databaseName": "picanteria_db",
+  "contextWindowLength": 15
+}
+```
+
+### General Agent Memory
+
+Short context for quick inquiries.
+
+```javascript
+{
+  "sessionIdType": "customKey",
+  "sessionKey": "{{ $('Extractormensajes').first().json.from }}",
+  "collectionName": "historial_general",
+  "databaseName": "picanteria_db",
+  "contextWindowLength": 10
+}
+```
+
+### Detector Agent Memory
+
+Tracks whether customer wants to modify or query existing orders.
+
+```javascript
+{
+  "sessionIdType": "customKey",
+  "sessionKey": "{{ $('Extractormensajes').first().json.from }}",
+  "collectionName": "historial_detector",
+  "databaseName": "picanteria_db",
+  "contextWindowLength": 10
+}
+```
+
+## Session Keys
+
+All agents use the customer's phone number as the session key:
+
+```javascript
+// Session key from WhatsApp message
+const sessionKey = extractedMessage.from; // e.g., "51900769907"
+```
+
+This ensures:
+- Each customer has isolated conversation history
+- Context persists across multiple interactions
+- No data leakage between customers
+
+## Memory Document Structure
+
+MongoDB stores conversations in this format:
+
+```json
+{
+  "_id": ObjectId("..."),
+  "sessionId": "51900769907",
+  "messages": [
+    {
+      "type": "human",
+      "data": {
+        "content": "Quiero hacer un pedido",
+        "additional_kwargs": {},
+        "response_metadata": {}
+      }
+    },
+    {
+      "type": "ai",
+      "data": {
+        "content": "¡Perfecto! ¿Qué te gustaría ordenar hoy? 🦐",
+        "additional_kwargs": {},
+        "response_metadata": {
+          "tokenUsage": {
+            "totalTokens": 45
+          }
+        }
+      }
+    }
+  ],
+  "createdAt": ISODate("2026-03-05T03:00:00Z"),
+  "updatedAt": ISODate("2026-03-05T03:05:00Z")
+}
+```
+
+## Context Window Management
+
+The `contextWindowLength` parameter controls how many previous messages are included:
+
+| Agent | Window Size | Reason |
+|-------|------------|--------|
+| **Orders** | 25 messages | Complex conversations with menu selections, modifications, confirmations |
+| **Reservations** | 15 messages | Moderate complexity (date, time, party size, contact info) |
+| **Events** | 15 messages | Event details, catering, special requests |
+| **Classifier** | 10 messages | Quick intent detection |
+| **General** | 10 messages | Simple Q&A |
+| **Detector** | 10 messages | Binary decision (modify vs query) |
+
+<Note>
+  Larger context windows consume more tokens per request. Balance between conversation continuity and cost.
+</Note>
+
+## Memory Cleanup
+
+Implement periodic cleanup for old conversations:
+
+```javascript
+// Delete conversations older than 30 days
+db.historial_pedidos.deleteMany({
+  updatedAt: { $lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+});
+
+// Archive instead of delete (recommended)
+db.historial_pedidos_archive.insertMany(
+  db.historial_pedidos.find({
+    updatedAt: { $lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+  }).toArray()
+);
+```
+
+## Monitoring Memory Usage
+
+Query memory statistics:
+
+<CodeGroup>
+```javascript Total conversations per agent
+db.historial_pedidos.countDocuments({})
+db.historial_reservas.countDocuments({})
+db.historial_general.countDocuments({})
+```
+
+```javascript Average message count per session
+db.historial_pedidos.aggregate([
+  {
+    $project: {
+      sessionId: 1,
+      messageCount: { $size: "$messages" }
+    }
+  },
+  {
+    $group: {
+      _id: null,
+      avgMessages: { $avg: "$messageCount" },
+      maxMessages: { $max: "$messageCount" }
+    }
+  }
+])
+```
+
+```javascript Active sessions (last 24 hours)
+db.historial_pedidos.countDocuments({
+  updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+})
+```
+</CodeGroup>
+
+## Performance Optimization
+
+### Indexes
+
+Create indexes for faster session lookups:
+
+```javascript
+db.historial_pedidos.createIndex({ sessionId: 1 })
+db.historial_pedidos.createIndex({ updatedAt: -1 })
+db.historial_clasificador.createIndex({ sessionId: 1 })
+db.historial_reservas.createIndex({ sessionId: 1 })
+db.historial_eventos.createIndex({ sessionId: 1 })
+db.historial_general.createIndex({ sessionId: 1 })
+db.historial_detector.createIndex({ sessionId: 1 })
+```
+
+### Connection Pooling
+
+Configure connection pool size based on traffic:
+
+```javascript
+{
+  "connectionString": "mongodb+srv://...",
+  "options": {
+    "maxPoolSize": 50,
+    "minPoolSize": 5,
+    "maxIdleTimeMS": 30000
+  }
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection failures">
+    - Verify network access list includes your server IP
+    - Check database user has correct permissions
+    - Ensure connection string includes database name
+    - Test connection: `mongosh "mongodb+srv://..."`
+  </Accordion>
+
+  <Accordion title="Memory not persisting">
+    - Verify collection names match exactly
+    - Check session key is consistent (phone number format)
+    - Ensure database name is correct: `picanteria_db`
+    - Review n8n node execution logs for errors
+  </Accordion>
+
+  <Accordion title="Context window too short/long">
+    Adjust `contextWindowLength` based on needs:
+    - Too short: Agent forgets important details
+    - Too long: High token usage, slower responses
+    - Optimal: Test with 10-25 messages depending on complexity
+  </Accordion>
+
+  <Accordion title="High storage usage">
+    - Implement conversation archiving (30+ days old)
+    - Reduce context window length if acceptable
+    - Monitor message count per session
+    - Consider summarization for long conversations
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+- **Authentication**: Always use username/password or certificate auth
+- **Network Access**: Whitelist only necessary IP addresses
+- **Encryption**: Use TLS/SSL for connections (`mongodb+srv://`)
+- **Least Privilege**: Grant only read/write on `picanteria_db`
+- **Credential Rotation**: Update passwords quarterly
+- **Audit Logs**: Enable Atlas audit logs for production
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="LangChain Memory" icon="brain" href="https://js.langchain.com/docs/modules/memory">
+    Official LangChain memory documentation
+  </Card>
+  <Card title="Order Service" icon="receipt" href="/services/orders">
+    How memory is used in order processing
+  </Card>
+</CardGroup>

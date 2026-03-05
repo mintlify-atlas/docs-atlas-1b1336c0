@@ -1,0 +1,485 @@
+---
+title: Redis Message Buffer
+description: Configure Redis for temporary message buffering and deduplication
+icon: bolt
+---
+
+Redis provides temporary message storage to batch rapid customer messages before processing, preventing duplicate agent responses and reducing AI API calls.
+
+## Purpose
+
+When customers send multiple messages quickly (e.g., "Hola", "Quiero", "Un ceviche"), the system:
+
+1. **Buffers messages** in Redis with 30-second TTL
+2. **Waits 8 seconds** after last message
+3. **Concatenates messages** into single context
+4. **Processes once** through AI agents
+
+This prevents:
+- Duplicate/conflicting AI responses
+- Wasted API calls for incomplete thoughts
+- Poor user experience from interleaved replies
+
+## Redis Setup
+
+<Steps>
+  <Step title="Install Redis">
+    <CodeGroup>
+    ```bash Docker
+    docker run -d \
+      --name redis-lurwis \
+      -p 6379:6379 \
+      redis:7-alpine \
+      redis-server --requirepass your_password
+    ```
+
+    ```bash Ubuntu/Debian
+    sudo apt update
+    sudo apt install redis-server
+    sudo systemctl enable redis-server
+    sudo systemctl start redis-server
+    ```
+
+    ```bash Cloud (Redis Labs)
+    # Sign up at https://redis.com/try-free/
+    # Create free database (30MB)
+    # Get connection details
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Configure authentication">
+    Edit `/etc/redis/redis.conf` (if self-hosted):
+
+    ```conf
+    requirepass your_secure_password
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+    ```
+
+    Restart Redis:
+    ```bash
+    sudo systemctl restart redis-server
+    ```
+  </Step>
+
+  <Step title="Test connection">
+    ```bash
+    redis-cli -h localhost -p 6379 -a your_password
+    
+    127.0.0.1:6379> PING
+    PONG
+    
+    127.0.0.1:6379> SET test "hello"
+    OK
+    
+    127.0.0.1:6379> GET test
+    "hello"
+    ```
+  </Step>
+</Steps>
+
+## Connection Configuration
+
+### n8n Credentials
+
+<CodeGroup>
+```json n8n Redis Credential
+{
+  "id": "LuOIeLYx2ps0SCoP",
+  "name": "Buffer Lurwis",
+  "type": "redis",
+  "data": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "your_password",
+    "database": 0,
+    "ssl": false
+  }
+}
+```
+
+```env Environment Variables
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=your_secure_password
+REDIS_DB=0
+```
+</CodeGroup>
+
+## Buffer Workflow
+
+The Receptor workflow implements a three-key buffer system:
+
+### Key Structure
+
+```javascript
+// Per user (phone number: 51900769907)
+buffer_51900769907  → Accumulated message text
+ts_51900769907      → Last message timestamp
+meta_51900769907    → WhatsApp phone_number_id
+```
+
+### Buffer Operations
+
+<Steps>
+  <Step title="Receive message">
+    When a WhatsApp message arrives:
+
+    ```javascript
+    const userId = message.from; // "51900769907"
+    const messageText = message.text.body;
+    ```
+  </Step>
+
+  <Step title="Check existing buffer">
+    ```javascript
+    // Redis GET operation
+    const existingBuffer = await redis.get(`buffer_${userId}`);
+    
+    if (existingBuffer) {
+      // Concatenate new message
+      const updatedBuffer = `${existingBuffer}\n${messageText}`;
+    } else {
+      // First message
+      const updatedBuffer = messageText;
+    }
+    ```
+  </Step>
+
+  <Step title="Save buffer with TTL">
+    ```javascript
+    // Set buffer with 30 second expiration
+    await redis.set(`buffer_${userId}`, updatedBuffer, 'EX', 30);
+    
+    // Save timestamp (also 30s)
+    await redis.set(`ts_${userId}`, Date.now().toString(), 'EX', 30);
+    
+    // Save metadata (2 minute expiration)
+    await redis.set(`meta_${userId}`, phoneNumberId, 'EX', 120);
+    ```
+  </Step>
+
+  <Step title="Return 200 OK immediately">
+    Respond to WhatsApp within 20 seconds:
+
+    ```javascript
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'text/plain' },
+      body: 'OK'
+    };
+    ```
+  </Step>
+</Steps>
+
+## Processing Workflow
+
+The Procesador workflow runs every 10 seconds to check for ready buffers:
+
+<Steps>
+  <Step title="Find active users">
+    ```javascript
+    // Get all timestamp keys
+    const keys = await redis.keys('ts_*');
+    
+    // Example result: ["ts_51900769907", "ts_51987654321"]
+    ```
+  </Step>
+
+  <Step title="Check if buffer is ready">
+    ```javascript
+    for (const key of keys) {
+      const timestamp = await redis.get(key);
+      const timeSinceLastMessage = Date.now() - parseInt(timestamp);
+      
+      // Process if more than 8 seconds since last message
+      if (timeSinceLastMessage > 8000) {
+        // Ready to process
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Read and delete buffer">
+    ```javascript
+    const userId = key.replace('ts_', '');
+    
+    // Read all data
+    const buffer = await redis.get(`buffer_${userId}`);
+    const metadata = await redis.get(`meta_${userId}`);
+    
+    // Delete keys immediately
+    await redis.del(`buffer_${userId}`);
+    await redis.del(`ts_${userId}`);
+    await redis.del(`meta_${userId}`);
+    ```
+  </Step>
+
+  <Step title="Process concatenated messages">
+    ```javascript
+    // Concatenate buffered messages into single text
+    const messagesArray = buffer.split('\n');
+    const combinedMessage = messagesArray
+      .map(m => m.trim())
+      .filter(m => m.length > 0)
+      .join(' ');
+    
+    // Example:
+    // Input: ["Hola", "Quiero", "Un ceviche"]
+    // Output: "Hola Quiero Un ceviche"
+    
+    // Send to AI agent as single context
+    processWithAgent(combinedMessage);
+    ```
+  </Step>
+</Steps>
+
+## TTL Configuration
+
+<CodeGroup>
+```javascript Buffer TTL (30 seconds)
+{
+  "operation": "set",
+  "key": "{{ $json.bufferKey }}",
+  "value": "{{ String($json.bufferContent) }}",
+  "expire": true,
+  "ttl": 30
+}
+```
+
+```javascript Timestamp TTL (30 seconds)
+{
+  "operation": "set",
+  "key": "{{ $json.timestampKey }}",
+  "value": "{{ String($json.timestamp) }}",
+  "expire": true,
+  "ttl": 30
+}
+```
+
+```javascript Metadata TTL (120 seconds)
+{
+  "operation": "set",
+  "key": "{{ $json.metaKey }}",
+  "value": "{{ $json.idMensajero }}",
+  "expire": true,
+  "ttl": 120
+}
+```
+</CodeGroup>
+
+<Note>
+  Buffer expires after 30s. Processor checks every 10s and waits 8s after last message. Maximum latency: 18 seconds.
+</Note>
+
+## Code Implementation
+
+Complete buffer management code from the workflow:
+
+```javascript
+// Buffer: Agregar Mensaje (Code node)
+let existingBuffer = '';
+
+try {
+  const redisResult = $input.first()?.json;
+  existingBuffer = redisResult?.value || redisResult?.propertyName || '';
+} catch (e) {
+  existingBuffer = '';
+}
+
+const extractorData = $('Extractormensajes').item.json;
+const newMessage = extractorData?.text?.body || extractorData?.['text.body'] || '';
+const userId = extractorData.from;
+
+const updatedBuffer = existingBuffer
+  ? `${existingBuffer}\n${newMessage}`
+  : newMessage;
+
+const now = Date.now();
+
+return {
+  json: {
+    bufferKey: `buffer_${userId}`,
+    timestampKey: `ts_${userId}`,
+    metaKey: `meta_${userId}`,
+    bufferContent: updatedBuffer,
+    timestamp: now,
+    userId: userId,
+    idMensajero: extractorData['id mensajero'] || '',
+    profileName: extractorData.profile_name || 'Cliente',
+    messageCount: updatedBuffer.split('\n').length
+  }
+};
+```
+
+## Redis Operations Used
+
+| Operation | Purpose | Example |
+|-----------|---------|----------|
+| **SET** | Store buffer/timestamp/metadata | `SET buffer_51900 "Hola" EX 30` |
+| **GET** | Retrieve buffer for processing | `GET buffer_51900` |
+| **KEYS** | Find all active users | `KEYS ts_*` |
+| **DEL** | Remove processed buffer | `DEL buffer_51900` |
+| **TTL** | Check time remaining | `TTL buffer_51900` |
+
+## Memory Management
+
+### Memory Policy
+
+Configure eviction when memory limit reached:
+
+```conf
+maxmemory 256mb
+maxmemory-policy allkeys-lru
+```
+
+**Policy options:**
+- `allkeys-lru` - Evict least recently used keys (recommended)
+- `volatile-ttl` - Evict keys with shortest TTL
+- `volatile-lru` - Evict LRU keys with expiration set
+
+### Memory Usage Estimation
+
+Typical memory per user:
+
+```
+Buffer key:     ~100 bytes (avg message length)
+Timestamp key:  ~20 bytes
+Metadata key:   ~30 bytes
+------------------------
+Total per user: ~150 bytes
+
+Capacity:
+256 MB = ~1.7 million concurrent users (unrealistic)
+1 MB   = ~6,800 concurrent users
+```
+
+<Note>
+  The 30-second TTL ensures memory is automatically freed. Even with 100 concurrent conversations, usage stays under 50KB.
+</Note>
+
+## Monitoring
+
+Check Redis health and usage:
+
+<CodeGroup>
+```bash Connection Test
+redis-cli -h localhost -p 6379 -a password PING
+```
+
+```bash Active Buffers
+redis-cli -h localhost -p 6379 -a password KEYS "buffer_*" | wc -l
+```
+
+```bash Memory Usage
+redis-cli -h localhost -p 6379 -a password INFO memory
+
+# Key metrics:
+# used_memory_human: 842.18K
+# maxmemory_human: 256.00M
+```
+
+```bash Check TTL
+redis-cli -h localhost -p 6379 -a password TTL buffer_51900769907
+# Returns seconds until expiration
+```
+</CodeGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Messages processing too quickly (< 8 seconds)">
+    The processor waits 8 seconds after the last message. If messages are processed before the user finishes:
+    
+    - Increase wait time in IF condition:
+      ```javascript
+      if (Date.now() - Number($json.value) > 10000) // 10 seconds instead of 8
+      ```
+    - Increase processor schedule interval (10s → 15s)
+  </Accordion>
+
+  <Accordion title="Buffers expiring before processing">
+    If 30-second TTL is too short:
+    
+    - Increase buffer TTL to 60 seconds
+    - Decrease processor schedule to 5 seconds
+    - Check processor isn't failing/stuck
+  </Accordion>
+
+  <Accordion title="Connection refused errors">
+    - Verify Redis is running: `systemctl status redis-server`
+    - Check firewall allows port 6379
+    - Test connection: `redis-cli -h host -p 6379 -a password PING`
+    - Verify password is correct in n8n credentials
+  </Accordion>
+
+  <Accordion title="Keys not expiring automatically">
+    - Confirm `expire: true` in SET operations
+    - Check TTL is set: `redis-cli TTL buffer_51900`
+    - Verify Redis config doesn't disable expiration
+    - Ensure system time is correct
+  </Accordion>
+
+  <Accordion title="High memory usage">
+    - Check for keys without TTL: `redis-cli KEYS * | wc -l`
+    - Review maxmemory policy: `CONFIG GET maxmemory-policy`
+    - Monitor with: `redis-cli --stat`
+    - Manually flush if needed: `FLUSHDB` (deletes all keys!)
+  </Accordion>
+</AccordionGroup>
+
+## Performance Optimization
+
+### Pipelining
+
+Reduce network round trips by batching commands:
+
+```javascript
+// Instead of 3 separate calls
+await redis.set('buffer_123', 'data');
+await redis.set('ts_123', timestamp);
+await redis.set('meta_123', metadata);
+
+// Use pipeline (if supported by client)
+const pipeline = redis.pipeline();
+pipeline.set('buffer_123', 'data', 'EX', 30);
+pipeline.set('ts_123', timestamp, 'EX', 30);
+pipeline.set('meta_123', metadata, 'EX', 120);
+await pipeline.exec();
+```
+
+### Key Design
+
+Use consistent key naming for efficient patterns:
+
+```javascript
+// Good: Consistent prefix for pattern matching
+buffer_51900769907
+ts_51900769907
+meta_51900769907
+
+// Bad: Inconsistent naming
+user_buffer_51900769907
+51900769907_timestamp
+metadata:51900769907
+```
+
+## Security Best Practices
+
+- **Password protect**: Always set `requirepass` in redis.conf
+- **Bind address**: Restrict to `bind 127.0.0.1` if local-only
+- **Disable dangerous commands**: `rename-command FLUSHALL ""`
+- **TLS/SSL**: Enable for production environments
+- **Firewall**: Only allow connections from application servers
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Receptor Workflow" icon="inbox" href="/workflows/receptor">
+    See buffer implementation
+  </Card>
+  <Card title="Procesador Workflow" icon="gear" href="/workflows/procesador">
+    Learn how buffers are processed
+  </Card>
+</CardGroup>

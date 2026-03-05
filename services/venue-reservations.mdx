@@ -1,0 +1,384 @@
+---
+title: 'Venue Reservations'
+description: 'Event and special occasion booking system (partially implemented)'
+icon: 'calendar-star'
+---
+
+The **Venue Reservations** service manages bookings for special events, celebrations, and large gatherings at Picantería Lurwis. The system is handled by the **Agente Reservas Local** (Venue Reservations Agent), also known as "Wilson - Eventos".
+
+<Warning>
+**Implementation Status**: This service is partially implemented. The AI agent is configured and can hold conversations, but the database operations and human handoff workflow are not yet fully connected. The agent collects event details but cannot finalize bookings automatically.
+</Warning>
+
+## How It Works
+
+When the [Clasificador agent](/workflows/procesador) detects venue reservation intent (mentions of events, large parties, or venue rental), it routes to the **Agente Reservas Local**.
+
+<Steps>
+  <Step title="Intent Classification">
+    Messages are classified as RESERVAS_LOCAL when customers mention:
+    - "Quiero alquilar el local"
+    - "Evento corporativo"
+    - "Cumpleaños con 30 personas"
+    - "Reserva para boda"
+  </Step>
+
+  <Step title="Event Discovery">
+    Wilson gathers essential event information:
+    - Type of event (birthday, corporate, wedding, etc.)
+    - Estimated guest count
+    - Preferred date(s)
+    - Special services needed (music, custom menu, decorations)
+  </Step>
+
+  <Step title="Venue Consultation">
+    The agent explains:
+    - Venue capacity and layout
+    - Available amenities
+    - Catering options
+    - Pricing structure (if available)
+  </Step>
+
+  <Step title="Human Handoff">
+    **⚠️ Pending Implementation**
+    
+    Planned tool: `add_human_service`
+    - Escalates to human coordinator
+    - Sends detailed event brief
+    - Coordinator follows up with formal quote
+  </Step>
+</Steps>
+
+## Agent Capabilities
+
+**Wilson - Eventos** is designed as an event coordinator with the following objectives:
+
+- **Event Type Identification**: Birthday, corporate, wedding, family reunion
+- **Capacity Planning**: Gather estimated guest count
+- **Service Customization**: Identify special requirements (music, menu, decorations)
+- **Venue Presentation**: Highlight venue advantages and amenities
+- **Handoff Preparation**: Collect all details for human coordinator follow-up
+
+### Agent Personality
+
+```json
+{
+  "name": "Wilson - Eventos",
+  "identity": "Coordinador de eventos de la PICANTERÍA LURWIS",
+  "mission": "Ayudo a organizar momentos inolvidables en nuestro local",
+  "expertise": "Alquiler de local, catering para eventos, cumpleaños y reuniones corporativas",
+  "tone": "Entusiasta, profesional, detallado"
+}
+```
+
+## Current Workflow (As-Is)
+
+<Accordion title="Sample Event Booking Conversation">
+**Customer**: Quiero celebrar un cumpleaños en su local
+
+**Wilson**: ¡Qué buena noticia! 🎉 Nuestro local es perfecto para celebraciones. Cuéntame, ¿para cuántas personas aproximadamente y para qué fecha?
+
+**Customer**: Unos 40 invitados, para el 15 de marzo
+
+**Wilson**: Excelente! Tenemos capacidad para ese número de personas cómodamente. 
+
+¿Qué tipo de celebración es? ¿Cumpleaños de adulto, niños, o alguna ocasión especial?
+
+**Customer**: Cumpleaños de adulto, queremos música en vivo y un menú especial
+
+**Wilson**: ¡Perfecto! Podemos ayudarte con:
+🎵 Música en vivo
+🦐 Menú especial de mariscos y platos criollos
+🎊 Decoración del espacio
+
+**⚠️ Current behavior**: The agent acknowledges the requirements but cannot yet escalate to human coordinator or provide formal quote.
+
+**Expected future response**:
+"Perfecto! He registrado todos los detalles de tu evento. Un coordinador de nuestro equipo se comunicará contigo dentro de las próximas 24 horas para enviarte un presupuesto personalizado y confirmar la disponibilidad del 15 de marzo.
+
+¿Hay algo más que debería informar al coordinador?"
+</Accordion>
+
+## Event Types Supported
+
+The system is designed to handle:
+
+<Accordion title="Birthday Celebrations">
+- Adult birthdays
+- Children's parties  
+- Milestone celebrations (quinceañeras, anniversaries)
+- Custom menu options
+- Entertainment arrangements
+</Accordion>
+
+<Accordion title="Corporate Events">
+- Team building dinners
+- Business meetings with catering
+- Client appreciation events
+- Year-end celebrations
+- Product launches
+</Accordion>
+
+<Accordion title="Weddings & Engagement">
+- Wedding receptions
+- Engagement parties  
+- Rehearsal dinners
+- Full venue rental
+- Custom seafood menus
+</Accordion>
+
+<Accordion title="Family Gatherings">
+- Family reunions
+- Graduation celebrations
+- Holiday parties
+- Casual large group dining (13+ people)
+</Accordion>
+
+## Planned Database Integration
+
+The system is designed to use MongoDB for event management:
+
+### Collection: `reservas_eventos`
+
+**Pending creation** - Expected schema:
+
+```javascript
+{
+  evento_id: ObjectId,
+  telefono: String,
+  cliente_nombre: String,
+  tipo_evento: String, // 'cumpleaños', 'corporativo', 'boda', 'familiar'
+  fecha_tentativa: ISODate,
+  num_invitados: Number,
+  servicios_requeridos: {
+    musica: Boolean,
+    menu_especial: Boolean,
+    decoracion: Boolean,
+    otros: String
+  },
+  estado: String, // 'consulta', 'cotizando', 'confirmado', 'cancelado'
+  presupuesto_estimado: Number,
+  coordinador_asignado: String,
+  notas: String,
+  created_at: ISODate,
+  updated_at: ISODate,
+  historial_comunicacion: [{
+    fecha: ISODate,
+    mensaje: String,
+    autor: String
+  }]
+}
+```
+
+## Planned Tools
+
+<Accordion title="add_human_service (Not Yet Implemented)">
+**Purpose**: Escalate event booking to human coordinator for quote and confirmation
+
+**Expected Parameters**:
+- `cliente_nombre`: Customer name
+- `telefono`: Contact phone
+- `tipo_evento`: Event type
+- `fecha_tentativa`: Preferred date
+- `num_invitados`: Guest count
+- `servicios_especiales`: Array of special services needed
+- `notas_adicionales`: Any other relevant details
+
+**Expected Behavior**:
+1. Creates document in `reservas_eventos` collection
+2. Sets `estado: 'cotizando'`
+3. Triggers notification to human coordinator (via email/Slack/etc.)
+4. Returns confirmation message to customer
+
+**Expected Response to Customer**:
+```
+Perfecto! He enviado tu solicitud a nuestro coordinador de eventos.
+
+Recibirás una llamada o mensaje dentro de las próximas 24 horas con:
+✅ Confirmación de disponibilidad para [fecha]
+✅ Presupuesto detallado
+✅ Opciones de menú
+✅ Servicios adicionales
+
+Referencia: #EVT[evento_id]
+```
+</Accordion>
+
+## Business Rules
+
+### Guest Count Thresholds
+
+- **2-12 guests**: Regular table reservation → [Table Reservations](/services/table-reservations)
+- **13-99 guests**: Venue partial reservation (this service)
+- **100+ guests**: Full venue rental with extended planning
+
+<Note>
+The agent should automatically detect guest count and recommend the appropriate service level. Large events (50+) may require deposits and longer planning timelines.
+</Note>
+
+### Lead Time Requirements
+
+**⚠️ Not yet implemented**
+
+Recommended policies:
+- **Small events (13-30)**: Minimum 7 days notice
+- **Medium events (31-60)**: Minimum 14 days notice  
+- **Large events (61+)**: Minimum 30 days notice
+- **Weddings**: Minimum 60 days notice
+
+### Pricing Structure
+
+**⚠️ Not yet configured**
+
+Planned pricing factors:
+- Base venue rental fee
+- Per-person food & beverage minimum
+- Additional services (music, decorations)
+- Day of week (weekend premium)
+- Duration of event
+
+## Technical Details
+
+**Agent Model**: Google Gemini (standard model for conversational gathering)
+**Memory**: MongoDB collection `historial_eventos` (15 message context window)
+**Database**: MongoDB (planned collection `reservas_eventos` - not yet created)
+**Tools**: One planned tool `add_human_service` - not yet implemented
+
+### System Configuration
+
+From the workflow JSON:
+
+```json
+{
+  "name": "Agente Reservas Local",
+  "type": "@n8n/n8n-nodes-langchain.agent",
+  "position": [4512, 1168],
+  "tools": ["mensaje", "add_human_service"],
+  "memory": "historial_eventos"
+}
+```
+
+## Implementation Notes
+
+From the workflow sticky notes:
+
+> **NOTA 6.1**: "Este agente se ocupa netamente de las reservas al local. Aún no está en uso (falta lógica) y creación de collections en mongoDB."
+
+### What's Missing
+
+<Warning>
+To make this service fully functional, the following must be completed:
+
+1. **MongoDB Collection**: Create `reservas_eventos` collection with schema
+2. **Human Handoff Tool**: Implement `add_human_service` for coordinator escalation
+3. **Notification System**: Alert human coordinators of new event inquiries
+4. **Quote System**: Process for generating and sending formal quotes
+5. **Payment Integration**: Deposit and payment processing for confirmed events
+6. **CRM Integration**: Track event status and coordinator assignments
+</Warning>
+
+### Recommended Implementation Order
+
+<Steps>
+  <Step title="Database Setup">
+    Create MongoDB collection `reservas_eventos` with:
+    - Proper indexes on `fecha_tentativa` and `estado`
+    - Text index on `notas` for searchability
+    - Reference to customer phone for lookup
+  </Step>
+
+  <Step title="Human Handoff Tool">
+    Build `add_human_service` tool:
+    - Validate event details
+    - Create event inquiry document
+    - Trigger coordinator notification (email/Slack/SMS)
+    - Return confirmation to customer
+  </Step>
+
+  <Step title="Coordinator Dashboard">
+    Build interface for coordinators to:
+    - View pending event inquiries
+    - Update event status
+    - Generate quotes
+    - Communicate with customers
+  </Step>
+
+  <Step title="Follow-up Automation">
+    Implement automated follow-up:
+    - Reminder if coordinator hasn't responded in 24h
+    - Customer check-in if no response in 48h
+    - Status update notifications
+  </Step>
+</Steps>
+
+## Venue Information to Share
+
+Wilson should be equipped to share:
+
+<Accordion title="Capacity & Layout">
+- Total capacity: [TBD] guests
+- Indoor seating: [TBD]
+- Outdoor seating (if available): [TBD]
+- Private area options
+- Accessibility features
+</Accordion>
+
+<Accordion title="Available Amenities">
+- Sound system
+- Microphone availability
+- Projector/screen (for corporate events)
+- Parking information
+- Kitchen facilities for custom catering
+</Accordion>
+
+<Accordion title="Catering Options">
+- Seafood specialties (ceviches, chicharrones)
+- Custom menu design
+- Dietary accommodation (vegetarian, allergies)
+- Beverage packages
+- Dessert options
+</Accordion>
+
+<Accordion title="Additional Services">
+- Decoration coordination
+- Live music arrangements
+- Photography recommendations
+- Event planning assistance
+- Setup and cleanup
+</Accordion>
+
+## Future Enhancements
+
+Once the base system is implemented:
+
+- **Virtual Tours**: Share venue photos/videos via WhatsApp
+- **Menu Previews**: Send sample menus based on event type
+- **Calendar Integration**: Real-time availability checking
+- **Contract Management**: Digital contract signing
+- **Deposit Processing**: Automated payment collection
+- **Post-Event Follow-up**: Feedback collection and reviews
+
+## Integration with Other Services
+
+### From Table Reservations
+
+If a customer books a table for 13+ people via [Table Reservations](/services/table-reservations), that agent should:
+
+1. Detect oversized party
+2. Suggest venue reservation instead
+3. Transfer conversation context to this agent
+
+### From Order System
+
+If a customer mentions "catering for an event" while ordering, the [Order System](/services/orders) agent should:
+
+1. Recognize event catering intent  
+2. Suggest venue reservation service
+3. Provide handoff instructions
+
+## See Also
+
+- [Procesador Workflow](/workflows/procesador) - Agent routing and classification
+- [Table Reservations](/services/table-reservations) - For smaller groups (2-12)
+- [MongoDB Integration](/integrations/mongodb) - Database setup and configuration
+- [General Inquiries](/services/general-inquiries) - Basic business information

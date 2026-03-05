@@ -1,0 +1,565 @@
+---
+title: 'Resolución de Problemas'
+description: 'Guía completa para diagnosticar y solucionar errores comunes en Automatización Lurwis'
+icon: 'wrench'
+---
+
+Esta guía cubre los problemas más frecuentes y sus soluciones paso a paso.
+
+## Problemas con Webhooks
+
+### Webhook no recibe mensajes de WhatsApp
+
+<Accordion title="Síntomas">
+  - Los clientes envían mensajes pero no llegan a n8n
+  - No hay ejecuciones nuevas en el workflow "Receptor"
+  - Meta muestra errores en la consola de desarrollador
+</Accordion>
+
+<Accordion title="Diagnóstico">
+  1. Verificar que el webhook esté activo en n8n:
+     ```bash
+     # Revisar logs de n8n
+     docker logs n8n-container | grep "meta-verify"
+     ```
+  
+  2. Probar manualmente con curl:
+     ```bash
+     curl -X POST https://servidor-silva.canadacentral.cloudapp.azure.com/webhook/meta-verify \
+       -H "Content-Type: application/json" \
+       -d '{"test": true}'
+     ```
+     
+     Debe responder con código 200.
+  
+  3. Revisar configuración en Meta Developer Console:
+     - URL del webhook debe ser: `https://tu-servidor.com/webhook/meta-verify`
+     - Verify Token debe ser: `meta-verify`
+     - Suscripciones activas: `messages` y `messaging_handovers`
+</Accordion>
+
+<Accordion title="Soluciones">
+  <Steps>
+    <Step title="Verificar token">
+      En n8n, ir al nodo "Catch de errores" (IF) y confirmar que el verify token sea exactamente `meta-verify`.
+    </Step>
+    
+    <Step title="Renovar suscripción">
+      En Meta Developer Console:
+      1. Ir a WhatsApp > Configuration
+      2. Editar webhook URL
+      3. Guardar y verificar nuevamente
+    </Step>
+    
+    <Step title="Revisar certificado SSL">
+      Meta requiere HTTPS válido:
+      ```bash
+      openssl s_client -connect servidor-silva.canadacentral.cloudapp.azure.com:443
+      ```
+      
+      Debe mostrar certificado válido sin errores.
+    </Step>
+    
+    <Step title="Verificar firewall">
+      Asegurar que el puerto 443 esté abierto y que las IPs de Meta no estén bloqueadas:
+      - IP ranges: 173.252.88.0/21, 31.13.24.0/21
+    </Step>
+  </Steps>
+</Accordion>
+
+---
+
+### Webhook responde 403 Forbidden
+
+<Warning>
+  Error crítico que impide que Meta envíe mensajes.
+</Warning>
+
+<Accordion title="Causa raíz">
+  El nodo "Catch de errores" rechaza la petición porque:
+  - `hub.mode` no es "subscribe"
+  - `hub.verify_token` no coincide con "meta-verify"
+</Accordion>
+
+<Accordion title="Solución">
+  Revisar el nodo IF "Catch de errores" en el workflow Receptor:
+  
+  ```javascript
+  // Condición 1
+  {{ $json.query['hub.mode'] }} equals "subscribe"
+  
+  // Condición 2
+  {{ $json.query["hub.verify_token"] }} equals "meta-verify"
+  
+  // Combinator: AND
+  ```
+  
+  Ambas condiciones deben cumplirse para responder 200.
+</Accordion>
+
+---
+
+### Mensajes vacíos generan ejecuciones múltiples
+
+<Accordion title="Síntomas">
+  - Ejecuciones del workflow sin datos útiles
+  - Logs muestran `messages: []` o `text.body: undefined`
+</Accordion>
+
+<Accordion title="Solución implementada">
+  El nodo "Identificador de vacíos" filtra automáticamente:
+  
+  ```javascript
+  // Condiciones del IF
+  1. messages[] NOT EMPTY
+  2. text.body NOT EMPTY  
+  3. statuses[] IS EMPTY (no es actualización de estado)
+  ```
+  
+  Si alguna falla, se ejecuta "No Operation, do nothing" → "Respond to Webhook3" (403).
+</Accordion>
+
+---
+
+## Errores de Base de Datos
+
+### Error: "Connection to PostgreSQL failed"
+
+<Accordion title="Síntomas">
+  - Workflow "Procesador" falla en nodos de Postgres
+  - Error: `Error: connect ETIMEDOUT`
+  - Mensajes de clientes no se guardan en `pedidos_picanteria`
+</Accordion>
+
+<Accordion title="Diagnóstico">
+  1. Verificar conexión desde n8n:
+     ```bash
+     # Dentro del contenedor de n8n
+     psql "postgresql://user:password@host:5432/database?sslmode=require"
+     ```
+  
+  2. Revisar logs de PostgreSQL:
+     ```sql
+     SELECT * FROM pg_stat_activity WHERE state = 'active';
+     ```
+  
+  3. Confirmar que Session Pooler esté activo (no Direct Connection).
+</Accordion>
+
+<Accordion title="Soluciones">
+  <Steps>
+    <Step title="Verificar credenciales">
+      En n8n, ir a Credentials → "Postgres Lurwis db":
+      - Host debe terminar en `-pooler.region.provider.com`
+      - Puerto: `5432`
+      - SSL Mode: `require`
+    </Step>
+    
+    <Step title="Probar connection string">
+      ```bash
+      # Formato correcto para Session Pooler
+      postgresql://user:password@project-name-pooler.region.supabase.com:5432/postgres?sslmode=require
+      ```
+    </Step>
+    
+    <Step title="Revisar límites de conexión">
+      Si hay error "too many connections":
+      ```sql
+      -- Ver conexiones activas
+      SELECT count(*) FROM pg_stat_activity;
+      
+      -- Ver límite
+      SHOW max_connections;
+      ```
+      
+      Solución: Aumentar límite o cerrar conexiones inactivas.
+    </Step>
+    
+    <Step title="Verificar RLS (Row Level Security)">
+      Si hay error "permission denied":
+      ```sql
+      -- Verificar políticas de seguridad
+      SELECT * FROM pg_policies WHERE tablename = 'pedidos_picanteria';
+      ```
+      
+      Asegurar que el usuario de n8n tenga permisos de INSERT/UPDATE.
+    </Step>
+  </Steps>
+</Accordion>
+
+---
+
+### Error: "Query syntax error" en INSERT/UPDATE
+
+<Accordion title="Causa común">
+  Variables de n8n con comillas simples en nombres que rompen el SQL.
+  
+  Ejemplo problemático:
+  ```sql
+  INSERT INTO pedidos_picanteria (cliente_nombre) 
+  VALUES ('{{ $json.nombre }}');  -- Si nombre tiene apóstrofe: "O'Brien"
+  ```
+</Accordion>
+
+<Accordion title="Solución">
+  Usar `JSON.stringify()` para campos JSONB y escapar comillas:
+  
+  ```sql
+  INSERT INTO pedidos_picanteria (detalle_pedido) 
+  VALUES ('{{ JSON.stringify({descripcion: $json.pedidodetallado}) }}'::jsonb);
+  ```
+  
+  Para strings simples, validar antes de insertar:
+  ```javascript
+  // En un nodo Code
+  const nombreSeguro = $json.nombre.replace(/'/g, "''");
+  return { json: { nombre: nombreSeguro } };
+  ```
+</Accordion>
+
+---
+
+## Problemas con Redis (Buffer)
+
+### Buffer no se guarda o se pierde antes de procesar
+
+<Accordion title="Síntomas">
+  - Cliente envía múltiples mensajes rápidos
+  - Solo se procesa el último mensaje
+  - Logs muestran: `bufferContent: "mensaje3"` (falta mensaje1 y mensaje2)
+</Accordion>
+
+<Accordion title="Diagnóstico">
+  1. Revisar TTL configurado:
+     ```redis
+     # Desde Upstash Console
+     TTL buffer_51900769907
+     ```
+     Debe retornar un número positivo (segundos restantes).
+  
+  2. Verificar frecuencia del cron procesador:
+     - Actual: cada 10 segundos
+     - TTL del buffer: 30 segundos
+     - Margen: 20 segundos (suficiente)
+</Accordion>
+
+<Accordion title="Soluciones">
+  <Steps>
+    <Step title="Aumentar TTL del buffer">
+      En nodo "Buffer: Guardar" del workflow Receptor:
+      ```javascript
+      // Cambiar de 30 a 60 segundos
+      {
+        "operation": "set",
+        "key": "{{ $json.bufferKey }}",
+        "value": "{{ String($json.bufferContent) }}",
+        "expire": true,
+        "ttl": 60  // <-- Aumentar este valor
+      }
+      ```
+    </Step>
+    
+    <Step title="Reducir intervalo del procesador">
+      En nodo "Schedule Trigger" del workflow Procesador:
+      ```javascript
+      // Cambiar de 10 a 5 segundos
+      {
+        "interval": [{
+          "field": "seconds",
+          "secondsInterval": 5  // <-- Reducir para procesar más rápido
+        }]
+      }
+      ```
+    </Step>
+    
+    <Step title="Verificar lógica de concatenación">
+      En nodo "Buffer: Agregar Mensaje":
+      ```javascript
+      const updatedBuffer = existingBuffer
+        ? `${existingBuffer}\n${newMessage}`  // <-- Asegurar salto de línea
+        : newMessage;
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+---
+
+### Error: "Redis connection timeout"
+
+<Accordion title="Causa">
+  Upstash Redis inaccesible por problemas de red o límite de plan excedido.
+</Accordion>
+
+<Accordion title="Solución">
+  1. Verificar estado de Upstash:
+     - Ir a dashboard de Upstash
+     - Revisar métricas de uso (comandos/mes)
+  
+  2. Probar conexión manualmente:
+     ```bash
+     redis-cli -u redis://default:password@region.upstash.io:port
+     PING
+     ```
+     Debe responder `PONG`.
+  
+  3. Regenerar credenciales en n8n si es necesario:
+     - Credentials → "Buffer Lurwis"
+     - Actualizar password y endpoint
+</Accordion>
+
+---
+
+## Problemas con Agentes IA
+
+### Agente no responde o timeout
+
+<Accordion title="Síntomas">
+  - Workflow "Procesador" se queda en estado "running" indefinidamente
+  - Cliente no recibe respuesta después de enviar mensaje
+  - Error: `Execution timed out after 120 seconds`
+</Accordion>
+
+<Accordion title="Diagnóstico">
+  1. Revisar logs del nodo del agente:
+     ```
+     Error: Google Gemini API request timed out
+     ```
+  
+  2. Verificar cuota de API de Google:
+     - Ir a Google Cloud Console
+     - APIs & Services → Enabled APIs → Gemini API
+     - Revisar límite de requests por minuto (RPM)
+</Accordion>
+
+<Accordion title="Soluciones">
+  <Steps>
+    <Step title="Aumentar timeout en n8n">
+      Settings del workflow:
+      ```javascript
+      {
+        "executionTimeout": 300,  // 5 minutos
+        "maxExecutionTime": 300
+      }
+      ```
+    </Step>
+    
+    <Step title="Verificar API key de Gemini">
+      En n8n Credentials → "Modelo Lurwis":
+      - Regenerar API key si es necesario
+      - Confirmar que tenga permisos para Gemini Pro/Flash
+    </Step>
+    
+    <Step title="Optimizar prompts">
+      Si el agente está sobrecargado con contexto:
+      ```javascript
+      // Reducir contextWindowLength en memoria MongoDB
+      {
+        "contextWindowLength": 10  // Reducir de 25 a 10
+      }
+      ```
+    </Step>
+    
+    <Step title="Implementar retry logic">
+      En nodo del agente, activar:
+      - Retry On Fail: `true`
+      - Max Tries: `3`
+      - Wait Between Tries: `5000ms`
+    </Step>
+  </Steps>
+</Accordion>
+
+---
+
+### Agente alucina información (precios incorrectos)
+
+<Warning>
+  Problema crítico que puede generar expectativas incorrectas en clientes.
+</Warning>
+
+<Accordion title="Causa">
+  El agente no está usando las herramientas de consulta a PostgreSQL correctamente.
+</Accordion>
+
+<Accordion title="Solución">
+  1. Verificar que las herramientas estén conectadas:
+     - `consultar_categorias`
+     - `consultar_platos`
+     - `verificar_plato`
+  
+  2. Reforzar instrucciones en el system prompt:
+     ```
+     NUNCA inventes precios. SIEMPRE usa la herramienta verificar_plato
+     antes de cotizar. Si la herramienta falla, dile al cliente que
+     consulte directamente por teléfono.
+     ```
+  
+  3. Agregar validación post-respuesta:
+     ```javascript
+     // En nodo Code después del agente
+     const output = $json.output;
+     const tienePrecios = /S\/\s*\d+/.test(output);
+     
+     if (tienePrecios && !$json.usedTools?.includes('verificar_plato')) {
+       // Error: mencionó precio sin consultar DB
+       return { json: { error: 'Precio no verificado' } };
+     }
+     ```
+</Accordion>
+
+---
+
+## Problemas de Memoria (MongoDB)
+
+### Error: "MongoServerError: Authentication failed"
+
+<Accordion title="Solución">
+  1. Verificar credenciales en n8n:
+     - Credentials → "Memoria chats Lurwis"
+     - Formato correcto de connection string:
+       ```
+       mongodb+srv://user:password@cluster.mongodb.net/picanteria_db
+       ```
+  
+  2. Confirmar que el usuario tenga permisos de lectura/escritura:
+     - En MongoDB Atlas → Database Access
+     - Role: `readWrite` en `picanteria_db`
+  
+  3. Permitir IP de n8n:
+     - MongoDB Atlas → Network Access
+     - Agregar IP del servidor n8n o permitir 0.0.0.0/0 (solo desarrollo)
+</Accordion>
+
+---
+
+### Memoria no se persiste entre conversaciones
+
+<Accordion title="Síntomas">
+  - El agente no recuerda conversaciones anteriores
+  - Cada mensaje es tratado como inicio de conversación nueva
+</Accordion>
+
+<Accordion title="Solución">
+  Verificar que el `sessionKey` sea consistente:
+  
+  ```javascript
+  // En nodo de Memoria MongoDB
+  {
+    "sessionIdType": "customKey",
+    "sessionKey": "={{ $('Extractormensajes').first().json.from }}"  // <-- Debe ser el teléfono
+  }
+  ```
+  
+  El `from` debe ser siempre el mismo formato (sin cambios entre +51, 51, 0051).
+</Accordion>
+
+---
+
+## Mensajes de Error al Cliente
+
+### Cliente recibe "Forbidden" en lugar de respuesta útil
+
+<Accordion title="Causa">
+  El nodo "Respond to Webhook3" envía 403 cuando no hay mensaje válido.
+</Accordion>
+
+<Accordion title="Solución">
+  Cambiar mensaje de error a algo más amigable:
+  
+  ```javascript
+  // En nodo "Respond to Webhook3"
+  {
+    "respondWith": "text",
+    "responseBody": "Mensaje recibido. Procesando...",
+    "options": {
+      "responseCode": 200  // <-- Cambiar de 403 a 200
+    }
+  }
+  ```
+  
+  Esto evita que Meta muestre error al cliente.
+</Accordion>
+
+---
+
+## Herramientas de Monitoreo
+
+### Logs de n8n
+
+```bash
+# Ver logs en tiempo real
+docker logs -f n8n-container
+
+# Buscar errores específicos
+docker logs n8n-container | grep "ERROR"
+
+# Filtrar por workflow
+docker logs n8n-container | grep "Procesador"
+```
+
+---
+
+### Revisar estado de Redis
+
+```bash
+# Conexión a Upstash Redis
+redis-cli -u redis://default:password@region.upstash.io:port
+
+# Ver todas las keys activas
+KEYS *
+
+# Verificar buffer de un usuario
+GET buffer_51900769907
+
+# Ver TTL restante
+TTL buffer_51900769907
+
+# Ver info del servidor
+INFO memory
+```
+
+---
+
+### Consultas de diagnóstico en PostgreSQL
+
+```sql
+-- Pedidos pendientes por estado
+SELECT estado_pedido, COUNT(*) 
+FROM pedidos_picanteria 
+GROUP BY estado_pedido;
+
+-- Últimos 10 pedidos
+SELECT id, cliente_nombre, total_final, estado_pedido, fecha_creacion
+FROM pedidos_picanteria
+ORDER BY fecha_creacion DESC
+LIMIT 10;
+
+-- Logs de auditoría recientes
+SELECT l.pedido_id, l.telefono, l.nombre_cliente, l.fecha_registro
+FROM logs_auditoria l
+ORDER BY l.fecha_registro DESC
+LIMIT 10;
+
+-- Pedidos sin log de auditoría (problema)
+SELECT p.id, p.cliente_nombre
+FROM pedidos_picanteria p
+LEFT JOIN logs_auditoria l ON l.pedido_id = p.id
+WHERE l.id IS NULL;
+```
+
+---
+
+## Contacto de Soporte
+
+<Note>
+  Si ninguna de estas soluciones resuelve el problema:
+  
+  1. Exportar el workflow con error (JSON)
+  2. Capturar logs completos del error
+  3. Documentar pasos para reproducir
+  4. Contactar al equipo de desarrollo con toda la información
+</Note>
+
+<Warning>
+  **Información sensible:** Nunca compartir credenciales, tokens de API o números de teléfono reales en tickets de soporte.
+</Warning>

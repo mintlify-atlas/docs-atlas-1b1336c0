@@ -1,0 +1,386 @@
+---
+title: 'n8n Installation & Setup'
+description: 'Complete guide to installing and configuring n8n for Automatización Lurwis'
+icon: 'server'
+---
+
+# n8n Installation & Setup
+
+This guide covers installing n8n (self-hosted or cloud) and configuring it for the Automatización Lurwis platform.
+
+## Prerequisites
+
+Before installing n8n, ensure you have:
+
+- Node.js 18+ (for self-hosted)
+- PostgreSQL 12+ database
+- MongoDB 4.4+ for conversation memory
+- Redis 6+ for message buffering
+- WhatsApp Business API credentials
+- Google Gemini API key
+
+---
+
+## Installation Options
+
+<Tabs>
+  <Tab title="Self-Hosted (Recommended)">
+    
+### Docker Installation
+
+The recommended approach for production deployments:
+
+<Steps>
+  <Step title="Create docker-compose.yml">
+    Create a `docker-compose.yml` file with the following configuration:
+
+    ```yaml
+    version: '3.8'
+    
+    services:
+      n8n:
+        image: n8nio/n8n:latest
+        container_name: n8n-lurwis
+        restart: unless-stopped
+        ports:
+          - "5678:5678"
+        environment:
+          - N8N_BASIC_AUTH_ACTIVE=true
+          - N8N_BASIC_AUTH_USER=${N8N_USER}
+          - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+          - N8N_HOST=${N8N_HOST}
+          - N8N_PORT=5678
+          - N8N_PROTOCOL=https
+          - WEBHOOK_URL=${WEBHOOK_URL}
+          - EXECUTIONS_PROCESS=main
+          - N8N_METRICS=true
+        volumes:
+          - n8n_data:/home/node/.n8n
+          - ./backups:/backups
+    
+    volumes:
+      n8n_data:
+        driver: local
+    ```
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env` file:
+
+    ```bash
+    N8N_USER=admin
+    N8N_PASSWORD=your-secure-password
+    N8N_HOST=your-domain.com
+    WEBHOOK_URL=https://your-domain.com
+    ```
+
+    <Warning>
+      Use a strong password and keep your `.env` file secure. Never commit it to version control.
+    </Warning>
+  </Step>
+
+  <Step title="Start n8n">
+    ```bash
+    docker-compose up -d
+    ```
+
+    Access n8n at `http://localhost:5678`
+  </Step>
+
+  <Step title="Configure reverse proxy (Production)">
+    For production, use Caddy or nginx as a reverse proxy with SSL:
+
+    **Caddy example:**
+    ```
+    your-domain.com {
+        reverse_proxy n8n:5678
+    }
+    ```
+
+    The workflows use Caddy as shown in the webhook configuration.
+  </Step>
+</Steps>
+
+### NPM Installation
+
+For local development:
+
+```bash
+npm install -g n8n
+n8n start
+```
+
+  </Tab>
+  
+  <Tab title="n8n Cloud">
+    
+### n8n Cloud Setup
+
+<Steps>
+  <Step title="Create account">
+    1. Go to [n8n.cloud](https://n8n.cloud)
+    2. Sign up for an account
+    3. Choose a plan (Pro recommended for production)
+  </Step>
+
+  <Step title="Configure workspace">
+    - Set your workspace name: `Lurwis Production`
+    - Note your workspace URL (needed for webhooks)
+  </Step>
+
+  <Step title="Set environment variables">
+    In n8n Cloud settings, add environment variables:
+    - See [Environment Variables](/deployment/environment-variables) page
+  </Step>
+</Steps>
+
+<Note>
+  n8n Cloud automatically handles scaling, backups, and SSL certificates.
+</Note>
+
+  </Tab>
+</Tabs>
+
+---
+
+## Workspace Configuration
+
+### Import Workflows
+
+After installation, import the two main workflows:
+
+<Steps>
+  <Step title="Navigate to Workflows">
+    In n8n interface, click **Workflows** → **Import from File**
+  </Step>
+
+  <Step title="Import Receptor workflow">
+    Upload: `workflows/Picantería Lurwis _ Receptor.json`
+
+    This workflow handles:
+    - WhatsApp webhook verification
+    - Message reception and validation
+    - Redis buffering (6-8 second window)
+    - Error handling
+  </Step>
+
+  <Step title="Import Procesador workflow">
+    Upload: `workflows/Picantería Lurwis _ Procesador.json`
+
+    This workflow handles:
+    - Message classification
+    - AI agent routing
+    - Order processing
+    - Database operations
+  </Step>
+
+  <Step title="Activate workflows">
+    Click **Active** toggle for both workflows
+  </Step>
+</Steps>
+
+---
+
+## Credential Management
+
+Configure credentials for all integrations:
+
+### WhatsApp Business API
+
+<Steps>
+  <Step title="Add WhatsApp credential">
+    1. Go to **Credentials** → **New**
+    2. Select **WhatsApp**
+    3. Enter:
+       - **Access Token**: Your Meta access token
+       - **Phone Number ID**: `947279508470714` (from workflow)
+  </Step>
+
+  <Step title="Configure webhook">
+    - **Webhook URL**: `https://your-domain.com/webhook/meta-verify`
+    - **Verify Token**: `meta-verify`
+  </Step>
+</Steps>
+
+### PostgreSQL Database
+
+<Steps>
+  <Step title="Add Postgres credential">
+    Name: `Postgres Lurwis db`
+
+    ```
+    Host: your-postgres-host
+    Database: picanteria_db
+    User: your-user
+    Password: your-password
+    Port: 5432
+    SSL: Require (production)
+    ```
+  </Step>
+
+  <Step title="Connection string format">
+    The workflows use session pooler connection:
+    ```
+    postgresql://user:password@host:5432/picanteria_db?sslmode=require
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The workflows note mentions "CONNECTION STRING (SESSION POOLER)" with RLS (Row Level Security) enabled.
+</Note>
+
+### MongoDB Memory
+
+<Steps>
+  <Step title="Add MongoDB credential">
+    Name: `Memoria chats Lurwis`
+
+    ```
+    Connection String: mongodb+srv://user:password@cluster.mongodb.net/
+    Database: picanteria_db
+    ```
+  </Step>
+
+  <Step title="Collections used">
+    The system uses separate collections for conversation memory:
+    - `historial_clasificador` - Message classification
+    - `historial_detector` - Order detection
+    - `historial_pedidos` - Order conversations (25 message window)
+    - `historial_eventos` - Event bookings (15 message window)
+    - `historial_reservas` - Table reservations (15 message window)
+    - `historial_general` - General inquiries (10 message window)
+  </Step>
+</Steps>
+
+### Redis Buffer
+
+<Steps>
+  <Step title="Add Redis credential">
+    Name: `Buffer Lurwis`
+
+    ```
+    Host: your-redis-host
+    Port: 6379
+    Password: your-redis-password
+    Database: 0
+    ```
+  </Step>
+
+  <Step title="TTL configuration">
+    Redis keys use automatic expiration:
+    - Buffer messages: 30 seconds
+    - Timestamps: 30 seconds
+    - Metadata: 120 seconds
+  </Step>
+</Steps>
+
+### Google Gemini AI
+
+<Steps>
+  <Step title="Add Google Gemini credential">
+    Name: `Modelo Lurwis`
+
+    ```
+    API Key: your-gemini-api-key
+    ```
+  </Step>
+
+  <Step title="Get API key">
+    1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+    2. Create new API key
+    3. Copy and save securely
+  </Step>
+</Steps>
+
+---
+
+## Workflow Settings
+
+### Execution Settings
+
+<Info>
+  Both workflows use `executionOrder: v1` for sequential processing.
+</Info>
+
+### Error Workflow
+
+<Warning>
+  The workflows reference an error notification workflow that sends failures to a personal WhatsApp number. Configure this separately for production monitoring.
+</Warning>
+
+To create an error workflow:
+
+1. Create new workflow named "Error Notifications"
+2. Add **Error Trigger** node
+3. Add **WhatsApp** node to send error details
+4. In main workflows, go to **Settings** → **Error Workflow** → Select "Error Notifications"
+
+---
+
+## Webhook Configuration
+
+### Meta WhatsApp Verification
+
+The Receptor workflow handles Meta's webhook verification:
+
+- **Path**: `/webhook/meta-verify`
+- **Method**: GET and POST
+- **Verify Token**: `meta-verify`
+- **Response Mode**: Response Node (for proper Meta acknowledgment)
+
+<Steps>
+  <Step title="Configure in Meta Developer Console">
+    1. Go to WhatsApp Business API settings
+    2. Add webhook URL: `https://your-domain.com/webhook/meta-verify`
+    3. Verify token: `meta-verify`
+    4. Subscribe to: `messages` field
+  </Step>
+
+  <Step title="Test webhook">
+    Meta will send a verification request. The workflow returns:
+    ```
+    Status: 200
+    Body: hub.challenge value
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Performance Tuning
+
+### Execution Limits
+
+```yaml
+EXECUTIONS_DATA_PRUNE=true
+EXECUTIONS_DATA_MAX_AGE=336  # 14 days
+N8N_CONCURRENCY=10
+```
+
+### Memory Settings
+
+For high-traffic production:
+
+```yaml
+NODE_OPTIONS=--max-old-space-size=4096
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="code" href="/deployment/environment-variables">
+    Configure all required environment variables
+  </Card>
+  <Card title="Production Checklist" icon="clipboard-check" href="/deployment/production">
+    Review production deployment requirements
+  </Card>
+  <Card title="Database Schema" icon="database" href="/reference/database-schema">
+    Understand the database structure
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/reference/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>

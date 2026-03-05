@@ -1,0 +1,399 @@
+---
+title: PostgreSQL Database
+description: Database configuration for menu, orders, and customer data
+icon: database
+---
+
+PostgreSQL stores all structured data including menu categories, dishes, prices, and order information for the Picantería Lurwis automation system.
+
+## Database Setup
+
+<Steps>
+  <Step title="Create PostgreSQL database">
+    Create a new database for the application:
+
+    ```sql
+    CREATE DATABASE picanteria_db;
+    CREATE USER lurwis_app WITH PASSWORD 'your_secure_password';
+    GRANT ALL PRIVILEGES ON DATABASE picanteria_db TO lurwis_app;
+    ```
+  </Step>
+
+  <Step title="Configure connection pooling">
+    The system uses **session pooler** for efficient connection management:
+
+    ```javascript
+    // Connection string format
+    postgresql://lurwis_app:password@host:6543/picanteria_db?sslmode=require
+    ```
+
+    <Note>
+      Port 6543 indicates session pooler. Direct connections typically use port 5432.
+    </Note>
+  </Step>
+
+  <Step title="Enable Row-Level Security (RLS)">
+    The database has RLS enabled for CRM integration security:
+
+    ```sql
+    ALTER TABLE pedidos_picanteria ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE categorias ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE platos ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE plato_precios ENABLE ROW LEVEL SECURITY;
+    ```
+  </Step>
+</Steps>
+
+## Database Schema
+
+The system uses four main tables:
+
+### Categorías (Categories)
+
+Stores menu categories like Ceviches, Chicharrones, etc.
+
+```sql
+CREATE TABLE categorias (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(100) NOT NULL,
+  descripcion TEXT,
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Query used by AI agents
+SELECT id, nombre 
+FROM categorias 
+WHERE activo = true 
+ORDER BY id;
+```
+
+### Platos (Dishes)
+
+Contains all menu items with descriptions.
+
+```sql
+CREATE TABLE platos (
+  id SERIAL PRIMARY KEY,
+  categoria_id INTEGER REFERENCES categorias(id),
+  nombre VARCHAR(200) NOT NULL,
+  descripcion TEXT,
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Plato Precios (Dish Prices)
+
+Handles multiple price points per dish (Personal, Familiar, Único).
+
+```sql
+CREATE TABLE plato_precios (
+  id SERIAL PRIMARY KEY,
+  plato_id INTEGER REFERENCES platos(id),
+  tamanio VARCHAR(20) NOT NULL, -- 'Personal', 'Familiar', 'Único'
+  precio NUMERIC(10, 2) NOT NULL,
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(plato_id, tamanio)
+);
+
+-- Query to get dishes with prices
+SELECT 
+  p.id,
+  p.nombre,
+  p.descripcion,
+  json_agg(
+    json_build_object('tamanio', pp.tamanio, 'precio', pp.precio)
+    ORDER BY pp.precio
+  ) AS precios
+FROM platos p
+JOIN plato_precios pp ON pp.plato_id = p.id
+WHERE p.categoria_id = 1 -- Category ID
+AND p.activo = true
+AND pp.activo = true
+GROUP BY p.id, p.nombre, p.descripcion
+ORDER BY p.nombre;
+```
+
+### Pedidos Picantería (Orders)
+
+Stores all customer orders with JSON details.
+
+```sql
+CREATE TABLE pedidos_picanteria (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  telefono VARCHAR(20) NOT NULL,
+  cliente_nombre VARCHAR(200),
+  direccion TEXT,
+  detalle_pedido JSONB NOT NULL,
+  total_final NUMERIC(10, 2) NOT NULL,
+  metodo_pago VARCHAR(50), -- 'Yape', 'Efectivo', 'Tarjeta', 'Plin'
+  tipo_servicio VARCHAR(50), -- 'Delivery', 'Recojo'
+  estado_pedido VARCHAR(50) DEFAULT 'pendiente',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_telefono ON pedidos_picanteria(telefono);
+CREATE INDEX idx_estado ON pedidos_picanteria(estado_pedido);
+```
+
+## Connection Configuration
+
+### n8n Credentials
+
+Store PostgreSQL credentials in n8n:
+
+<CodeGroup>
+```json n8n Credential Object
+{
+  "id": "5nRuBkRnPEOnj0KP",
+  "name": "Postgres Lurwis db",
+  "type": "postgres",
+  "data": {
+    "host": "your-db-host.com",
+    "port": 6543,
+    "database": "picanteria_db",
+    "user": "lurwis_app",
+    "password": "your_secure_password",
+    "ssl": true,
+    "sslMode": "require"
+  }
+}
+```
+
+```env Environment Variables
+# Alternative: Use connection string
+DATABASE_URL=postgresql://lurwis_app:password@host:6543/picanteria_db?sslmode=require
+
+# Or individual components
+DB_HOST=your-db-host.com
+DB_PORT=6543
+DB_NAME=picanteria_db
+DB_USER=lurwis_app
+DB_PASSWORD=your_secure_password
+DB_SSL=true
+```
+</CodeGroup>
+
+## AI Agent Queries
+
+The system uses PostgreSQL Tools in LangChain for AI agents to query menu data:
+
+### consultar_categorias
+
+Lists available categories:
+
+```sql
+SELECT id, nombre 
+FROM categorias 
+WHERE activo = true 
+ORDER BY id;
+```
+
+### consultar_platos
+
+Gets dishes in a category with all prices:
+
+```sql
+SELECT 
+  p.id,
+  p.nombre,
+  p.descripcion,
+  json_agg(
+    json_build_object('tamanio', pp.tamanio, 'precio', pp.precio)
+    ORDER BY pp.precio
+  ) AS precios
+FROM platos p
+JOIN plato_precios pp ON pp.plato_id = p.id
+WHERE p.categoria_id = :categoriaid
+AND p.activo = true
+AND pp.activo = true
+GROUP BY p.id, p.nombre, p.descripcion
+ORDER BY p.nombre;
+```
+
+### verificar_plato
+
+Calculates price for specific dish, size, and quantity:
+
+```sql
+SELECT 
+  p.nombre,
+  pp.tamanio,
+  pp.precio AS precio_unitario,
+  :cantidad::int AS cantidad,
+  (pp.precio * :cantidad::int) AS subtotal
+FROM platos p
+JOIN plato_precios pp ON pp.plato_id = p.id
+WHERE p.id = :platoid
+AND LOWER(pp.tamanio) = LOWER(:tamanio)
+AND p.activo = true
+AND pp.activo = true;
+```
+
+## Order Management
+
+### Check Existing Orders
+
+Verify if customer has pending orders:
+
+```sql
+SELECT id, detalle_pedido, total_final, estado_pedido 
+FROM pedidos_picanteria 
+WHERE TRIM(telefono) = TRIM('51900769907')
+AND estado_pedido NOT IN ('entregado', 'cancelado')
+LIMIT 1;
+```
+
+### Insert New Order
+
+```sql
+INSERT INTO pedidos_picanteria (
+  telefono,
+  cliente_nombre,
+  direccion,
+  detalle_pedido,
+  total_final,
+  metodo_pago,
+  tipo_servicio,
+  estado_pedido
+) VALUES (
+  '51900769907',
+  'Kevin Silva',
+  'Calle Los Pinos 123, Chiclayo',
+  '{"descripcion": "1 Ceviche Personal, 2 Chicharrón Familiar"}'::jsonb,
+  64.00,
+  'Yape',
+  'Delivery',
+  'confirmado'
+) RETURNING id;
+```
+
+### Update Existing Order
+
+```sql
+UPDATE pedidos_picanteria 
+SET 
+  cliente_nombre = 'Kevin Silva',
+  detalle_pedido = '{"descripcion": "..."}'::jsonb,
+  total_final = 85.00,
+  metodo_pago = 'Efectivo',
+  tipo_servicio = 'Delivery',
+  estado_pedido = 'confirmado',
+  updated_at = CURRENT_TIMESTAMP
+WHERE id = 'uuid-here'::uuid
+RETURNING id;
+```
+
+## Data Types & Validation
+
+<CodeGroup>
+```sql Order States
+-- Valid estado_pedido values
+'pendiente'   -- Initial state, customer building order
+'confirmado'  -- Customer confirmed with "confirmo"
+'preparando'  -- Kitchen preparing food
+'enviado'     -- Out for delivery
+'entregado'   -- Completed successfully
+'cancelado'   -- Cancelled by customer or restaurant
+```
+
+```sql Payment Methods
+-- Valid metodo_pago values
+'Yape'        -- Mobile payment
+'Plin'        -- Mobile payment
+'Efectivo'    -- Cash
+'Tarjeta'     -- Credit/debit card
+```
+
+```sql Service Types
+-- Valid tipo_servicio values
+'Delivery'    -- Home delivery
+'Recojo'      -- Customer pickup
+```
+</CodeGroup>
+
+## Performance Optimization
+
+### Indexes
+
+Critical indexes for query performance:
+
+```sql
+-- Order lookups by phone
+CREATE INDEX idx_telefono ON pedidos_picanteria(telefono);
+
+-- Order filtering by status
+CREATE INDEX idx_estado ON pedidos_picanteria(estado_pedido);
+
+-- Active menu items
+CREATE INDEX idx_platos_activo ON platos(activo, categoria_id);
+CREATE INDEX idx_precios_activo ON plato_precios(activo, plato_id);
+```
+
+### Connection Pooling
+
+<Note>
+  Using session pooler (port 6543) instead of direct connections (port 5432) provides:
+  - Better connection reuse
+  - Lower latency for short queries
+  - Protection against connection exhaustion
+</Note>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection timeout">
+    - Verify session pooler is running
+    - Check firewall allows port 6543
+    - Ensure SSL mode matches server configuration
+    - Test connection: `psql postgresql://user:pass@host:6543/db`
+  </Accordion>
+
+  <Accordion title="TRIM function errors on phone lookup">
+    The query uses `TRIM()` to handle spacing issues:
+    ```sql
+    WHERE TRIM(telefono) = TRIM('51900769907')
+    ```
+    This prevents mismatches from accidental spaces.
+  </Accordion>
+
+  <Accordion title="JSONB query errors">
+    When inserting orders, cast strings to JSONB:
+    ```sql
+    -- Correct
+    '{"descripcion": "..."}'::jsonb
+    
+    -- Wrong
+    '{"descripcion": "..."}'
+    ```
+  </Accordion>
+
+  <Accordion title="UUID conversion errors">
+    Always cast string UUIDs in WHERE clauses:
+    ```sql
+    WHERE id = 'abc-123-def'::uuid
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Security Considerations
+
+- **Row-Level Security (RLS)** is enabled for CRM access control
+- **Connection pooling** prevents connection exhaustion attacks
+- **SSL/TLS** required for all connections
+- **Credential rotation**: Update passwords regularly
+- **Least privilege**: Application user has only necessary permissions
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Database Schema Reference" icon="table" href="/reference/database-schema">
+    Complete schema documentation
+  </Card>
+  <Card title="Order Service" icon="receipt" href="/services/orders">
+    How orders are processed
+  </Card>
+</CardGroup>
